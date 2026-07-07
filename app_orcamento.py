@@ -94,14 +94,14 @@ if "menu_anterior" not in st.session_state:
     st.session_state.menu_anterior = ""
 if "df_recalculado_resultado" not in st.session_state:
     st.session_state["df_recalculado_resultado"] = None
-if "flash_mensagem_sucesso" not in st.session_state:
-    st.session_state["flash_mensagem_sucesso"] = ""  # NOVO: Registra mensagens Flash estáveis
+if "msg_sucesso_persistente" not in st.session_state:
+    st.session_state["msg_sucesso_persistente"] = ""  
 if "editor_version" not in st.session_state:
     st.session_state.editor_version = 0  
 if "taxas_original_msg" not in st.session_state:
     st.session_state["taxas_original_msg"] = ""
 
-# Inicialização de chaves de widgets (Margem padrão inicial fixada em 5mm)
+# Inicialização de chaves de widgets (Margem padrão inicial em 5mm)
 valores_padrao_widgets = {
     "sel_empresa_aba1": "", "txt_comprador": "", "sel_codigo_peca": "", "txt_nome_peca": "",
     "num_lote": 100, "num_comprimento": 0.0, "num_margem_corte": 5.0, 
@@ -117,7 +117,7 @@ if "df_usinagem_v3" not in st.session_state:
 if "df_tratamento_v3" not in st.session_state:
     st.session_state["df_tratamento_v3"] = pd.DataFrame([{"Tratamento": "Nenhum / Sem Tratamento", "Preço por Kg (R$)": 0.0}])
 
-# Carga de listas adaptadas do histórico (Filtro por Cliente)
+# Carga de listas adaptadas do histórico (Filtro por Cliente conversando em tempo real)
 lista_empresas = []
 lista_codigos = []
 df_init = ler_historico_seguro()
@@ -178,13 +178,13 @@ def carregar_roteiro_antigo_callback():
                         resumo_taxas = " | ".join([f"{r['Máquina']}: R$ {r['Preço/Hora_Aplicado']}/h" for _, r in df_usi_carregado.drop_duplicates(subset=['Máquina']).iterrows()])
                         st.session_state["taxas_original_msg"] = f"Taxas de hora-máquina aplicadas no último cálculo desta peça: {resumo_taxas}"
                     else:
-                        st.session_state["taxas_original_msg"] = "Taxas de hora-máquina: Histórico detalhado indisponível para este registro antigo."
+                        st.session_state["taxas_original_msg"] = "Taxas de hora-máquina: Histórico detalhado indisponível para este registro."
                 
                 if "Tratamento_JSON" in last_hist and safe_str(last_hist["Tratamento_JSON"]) not in ["", "[]"]:
                     st.session_state["df_tratamento_v3"] = pd.read_json(io.StringIO(last_hist["Tratamento_JSON"]))
                     
                 st.session_state.editor_version += 1
-                st.session_state["msg_sucesso_persistente"] = f"📋 Roteiro e dimensões históricas da peça '{codigo_target}' restaurados!"
+                st.toast("📋 Roteiro e dimensões antigas restaurados!", icon="ℹ️")
         except Exception as e:
             st.error(f"Erro ao processar autocomplete: {e}")
 
@@ -218,11 +218,6 @@ st.markdown("---")
 # 📊 TELA 1: NOVO ORÇAMENTO
 # =============================================================================
 if opcao_menu == "📊 1. Novo Orçamento":
-    # NOVO: Local fixo reservado no topo absoluto do formulário para renderizar o Alerta Flash persistente
-    if st.session_state["msg_sucesso_persistente"]:
-        st.success(st.session_state["msg_sucesso_persistente"])
-        st.session_state["msg_sucesso_persistente"] = "" # consome para não travar nas próximas interações
-
     st.subheader("👤 Dados do Cliente")
     col_cli1, col_cli2 = st.columns(2)
     
@@ -252,7 +247,6 @@ if opcao_menu == "📊 1. Novo Orçamento":
         if codigo_sel and codigo_sel != "➕ Novo Código...":
             st.button("📋 Completar dados com roteiro antigo", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
 
-    # Exibe o balão informativo azul com os preços de hora aplicados originalmente
     if st.session_state["taxas_original_msg"]:
         st.info(st.session_state["taxas_original_msg"])
 
@@ -436,15 +430,20 @@ if opcao_menu == "📊 1. Novo Orçamento":
             df_novo = pd.DataFrame([novo_registro])
             df_hist_atual = ler_historico_seguro()
             df_final = pd.concat([df_hist_atual, df_novo], ignore_index=True) if not df_hist_atual.empty else df_novo
-            
             df_final.to_csv(ARQUIVO_HISTORICO, index=False)
             
-            # PONTO 4 CORRIGIDO: Mensagem gravada na sessão e st.toast disparado na tela para o usuário ver na hora!
+            # PONTO 4 CORRIGIDO: Mensagem salva na memória para ser renderizada ABAIXO do botão no próximo bloco
             st.session_state["msg_sucesso_persistente"] = f"✅ Sucesso absoluto! O orçamento da peça '{codigo_peca}' foi adicionado e guardado no arquivo histórico!"
             st.toast("💾 Orçamento Gravado com Sucesso!", icon="✅")
             
             st.session_state["dados_carregados"] = {} 
+            st.session_state.editor_version += 1
             st.rerun()
+
+    # MUDANÇA DEMANDADA: O bloco que exibe a mensagem de gravação foi movido para cá (abaixo do botão)
+    if st.session_state["msg_sucesso_persistente"]:
+        st.success(st.session_state["msg_sucesso_persistente"])
+        st.session_state["msg_sucesso_persistente"] = ""
 
 # =============================================================================
 # 📜 TELA 2: HISTÓRICO & PREÇOS ATUAIS
@@ -460,7 +459,7 @@ elif opcao_menu == "📜 2. Histórico & Preços Atuais":
             df_completo["Origem/Alteração"] = "Novo Orçamento"
             
         clientes_existentes = sorted(df_completo["Empresa"].dropna().astype(str).unique().tolist())
-        cliente_filtro = st.multiselect("🔍 Filtrar visualização por Cliente/Empresa:", options=clientes_existentes, placeholder="Exibindo todos os clientes")
+        cliente_filtro = st.multiselect("🔍 Filtrar por Cliente/Empresa:", options=clientes_existentes, placeholder="Exibindo todos")
         
         opcao_visao = st.radio("Selecione a visualização dos dados:", ["🎯 Preços Atuais (Última Versão por Peça)", "⏳ Histórico de Alterações Completo"], key="rad_visao_aba2")
         
@@ -565,7 +564,7 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                     
                 valor_lucro_novo = custo_fabrica_novo / fator_m
                 total_imp_pct = safe_float(impostos.get("IR")) + safe_float(impostos.get("FS"))
-                preco_lote_novo = factor_lucro = valor_lucro_novo + (valor_lucro_novo * (total_imp_pct / 100))
+                preco_lote_novo = valor_lucro_novo + (valor_lucro_novo * (total_imp_pct / 100))
                 preco_unit_novo = preco_lote_novo / lote_recalc
                 
                 linhas_recalculadas.append({
@@ -590,8 +589,7 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                 row_clean["Preço Total Lote (R$)"] = round(preco_lote_novo, 2)
                 row_clean["Preço Unitário (R$)"] = round(preco_unit_novo, 2)
                 novas_linhas_historico.append(row_clean)
-            except: 
-                pass
+            except: pass
                 
         if novas_linhas_historico:
             df_novos_recalc = pd.DataFrame(novas_linhas_historico)
