@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 import os
 
-# 1. CONFIGURAÇÕES INICIAIS DA PÁGINA (Atualizado conforme solicitado)
+# 1. CONFIGURAÇÕES INICIAIS DA PÁGINA
 st.set_page_config(page_title="Sistema Lenoor - Orçamentos v3", page_icon="⚙️", layout="wide")
 
 # Nome do arquivo de banco de dados local
@@ -17,7 +17,7 @@ DADOS_MATERIAIS = {
     "latao red": 0.68, "latao quad": 0.78, "latao sx": 0.72
 }
 
-# 2. INICIALIZAÇÃO DE VARIÁVEIS DE SESSÃO (Garante estabilidade absoluta do Autocomplete)
+# 2. INICIALIZAÇÃO DE VARIÁVEIS DE SESSÃO
 if "valores_maquinas" not in st.session_state:
     st.session_state.valores_maquinas = {
         "CNC": 150.0, "Torno Automático": 120.0, "Freza": 120.0,
@@ -26,8 +26,10 @@ if "valores_maquinas" not in st.session_state:
     }
 if "impostos" not in st.session_state:
     st.session_state.impostos = {"IR": 6.0, "FS": 4.0}
+if "dados_carregados" not in st.session_state:
+    st.session_state.dados_carregados = {}
 
-# Inicialização dos estados dos inputs para o Autocomplete funcionar sem conflito
+# Inicialização das chaves de inputs para o Autocomplete seguro em callbacks
 if "sel_empresa_aba1" not in st.session_state: st.session_state["sel_empresa_aba1"] = ""
 if "txt_comprador" not in st.session_state: st.session_state["txt_comprador"] = ""
 if "sel_codigo_peca" not in st.session_state: st.session_state["sel_codigo_peca"] = ""
@@ -46,13 +48,12 @@ if "num_peso_peca" not in st.session_state: st.session_state["num_peso_peca"] = 
 if "num_peso_fornecido" not in st.session_state: st.session_state["num_peso_fornecido"] = 0.0
 if "slider_lucro_aba1" not in st.session_state: st.session_state["slider_lucro_aba1"] = 30
 
-# Inicialização das tabelas dinâmicas padrão na memória
 if "df_usinagem_v3" not in st.session_state:
     st.session_state["df_usinagem_v3"] = pd.DataFrame([{"Operação": "Tornear", "Máquina": "Torno Automático", "Peças por Hora": 50}])
 if "df_tratamento_v3" not in st.session_state:
     st.session_state["df_tratamento_v3"] = pd.DataFrame([{"Tratamento": "Nenhum / Sem Tratamento", "Preço por Kg (R$)": 0.0}])
 
-# Carrega listas do histórico para sugestão automática (Autocomplete)
+# Carrega listas do histórico para sugestão automática
 lista_empresas = []
 lista_codigos = []
 if os.path.exists(ARQUIVO_HISTORICO):
@@ -63,26 +64,78 @@ if os.path.exists(ARQUIVO_HISTORICO):
     except:
         pass
 
-# Atalhos para as configurações de custos vigentes
+# --- FUNÇÃO DE CALLBACK PARA AUTOCOMPLETE (Roda antes da renderização da tela) ---
+def carregar_roteiro_antigo_callback():
+    codigo_target = st.session_state["sel_codigo_peca"]
+    if codigo_target and codigo_target != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
+        try:
+            df_hist_busca = pd.read_csv(ARQUIVO_HISTORICO)
+            df_filtrado = df_hist_busca[df_hist_busca["Código da Peça"] == codigo_target]
+            if not df_filtrado.empty:
+                last_hist = df_filtrado.iloc[-1].to_dict()
+                st.session_state["dados_carregados"] = last_hist
+                
+                # Injeta os dados históricos na raiz das chaves
+                st.session_state["sel_empresa_aba1"] = last_hist.get("Empresa", "")
+                st.session_state["txt_comprador"] = last_hist.get("Comprador", "")
+                st.session_state["txt_nome_peca"] = last_hist.get("Nome da Peça", "")
+                st.session_state["num_lote"] = int(last_hist.get("Lote", 100))
+                st.session_state["num_comprimento"] = float(last_hist.get("Comprimento (mm)", 0.0))
+                st.session_state["num_margem_corte"] = float(last_hist.get("Margem Corte (mm)", 5.0))
+                st.session_state["sel_tipo_mp"] = last_hist.get("Tipo MP", "Por Peso (Barra Maciça/Sextavada)")
+                st.session_state["num_preco_mp"] = float(last_hist.get("Preço MP Unitário", 0.0))
+                st.session_state["sel_liga"] = last_hist.get("Liga", "aço sx")
+                st.session_state["num_diam_barra"] = float(last_hist.get("Diâmetro (mm)", 15.0))
+                st.session_state["num_di_ext"] = float(last_hist.get("Diâmetro Externo (mm)", 20.0))
+                st.session_state["num_di_int"] = float(last_hist.get("Diâmetro Interno (mm)", 10.0))
+                st.session_state["num_peso_metro"] = float(last_hist.get("Total Kg Lote", 10.0))
+                st.session_state["num_peso_peca"] = float(last_hist.get("Total Kg Lote", 10.0))
+                st.session_state["num_peso_fornecido"] = float(last_hist.get("Total Kg Lote", 0.0))
+                st.session_state["slider_lucro_aba1"] = int(last_hist.get("Margem Lucro (%)", 30))
+                
+                if "Usinagem_JSON" in last_hist:
+                    st.session_state["df_usinagem_v3"] = pd.read_json(last_hist["Usinagem_JSON"])
+                if "Tratamento_JSON" in last_hist:
+                    st.session_state["df_tratamento_v3"] = pd.read_json(last_hist["Tratamento_JSON"])
+                    
+                if "editor_usinagem_aba1" in st.session_state: del st.session_state["editor_usinagem_aba1"]
+                if "editor_tratamentos_aba1" in st.session_state: del st.session_state["editor_tratamentos_aba1"]
+        except:
+            pass
+
 valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
 
+# =============================================================================
+# 🧭 MENU NA BARRA LATERAL (SUBSTITUI AS ABAS SUPERIORES)
+# =============================================================================
+st.sidebar.title("🧭 Menu Lenoor")
+opcao_menu = st.sidebar.radio(
+    "Navegue pelas telas do sistema:",
+    [
+        "📊 1. Novo Orçamento", 
+        "📜 2. Histórico & Preços Atuais", 
+        "⚙️ 3. Configurações de Custos e Impostos"
+    ]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Lenoor Usinagem v3.0 - Offline Mode")
+
+# Título principal estático
 st.title("Sistema Lenoor de Orçamentos")
-
-# 3. CRIAÇÃO DAS ABAS NA TELA
-aba_calculo, aba_historico, aba_config = st.tabs([
-    "📊 1. Novo Orçamento", 
-    "📜 2. Histórico & Preços Atuais", 
-    "⚙️ 3. Configurações de Custos e Impostos"
-])
+st.markdown(f"**Tela ativa:** {opcao_menu}")
+st.markdown("---")
 
 # =============================================================================
-# ABA 1: NOVO ORÇAMENTO
+# TELA 1: NOVO ORÇAMENTO
 # =============================================================================
-with aba_calculo:
-    # --- BLOCO 1: DADOS DO CLIENTE (Primeira Linha de todas) ---
+if opcao_menu == "📊 1. Novo Orçamento":
+    # --- BLOCO 1: DADOS DO CLIENTE (No topo absoluto) ---
     st.subheader("👤 Dados do Cliente")
     col_cli1, col_cli2 = st.columns(2)
+    
+    hist = st.session_state.dados_carregados
     
     with col_cli1:
         opcoes_empresa = [""] + lista_empresas + ["➕ Novo Cliente..."]
@@ -100,7 +153,7 @@ with aba_calculo:
 
     st.markdown("---")
     
-    # --- BLOCO 2: DADOS DO PRODUTO (Segunda Linha) ---
+    # --- BLOCO 2: DADOS DO PRODUTO ---
     st.subheader("📦 Dados do Produto")
     col_prod1, col_prod2, col_prod3 = st.columns(3)
     
@@ -126,50 +179,13 @@ with aba_calculo:
     with col_prod5:
         margem_corte = st.number_input("Margem de Corte/Perda por peça (mm)", min_value=0.0, step=0.1, key="num_margem_corte")
 
-    # BOTÃO CORRIGIDO: Injeta os dados históricos diretamente nas chaves do Streamlit e força o recarregamento
+    # Botão de Autocomplete associado ao Callback
     if codigo_sel and codigo_sel != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
-        if st.button("📋 Completar Dados com Roteiro Antigo", type="secondary", use_container_width=True):
-            try:
-                df_hist_busca = pd.read_csv(ARQUIVO_HISTORICO)
-                df_filtrado = df_hist_busca[df_hist_busca["Código da Peça"] == codigo_sel]
-                if not df_filtrado.empty:
-                    last_hist = df_filtrado.iloc[-1].to_dict()
-                    
-                    # Atualiza a memória interna do Streamlit forçadamente
-                    st.session_state["sel_empresa_aba1"] = last_hist.get("Empresa", "")
-                    st.session_state["txt_comprador"] = last_hist.get("Comprador", "")
-                    st.session_state["txt_nome_peca"] = last_hist.get("Nome da Peça", "")
-                    st.session_state["num_lote"] = int(last_hist.get("Lote", 100))
-                    st.session_state["num_comprimento"] = float(last_hist.get("Comprimento (mm)", 0.0))
-                    st.session_state["num_margem_corte"] = float(last_hist.get("Margem Corte (mm)", 5.0))
-                    st.session_state["sel_tipo_mp"] = last_hist.get("Tipo MP", "Por Peso (Barra Maciça/Sextavada)")
-                    st.session_state["num_preco_mp"] = float(last_hist.get("Preço MP Unitário", 0.0))
-                    st.session_state["sel_liga"] = last_hist.get("Liga", "aço sx")
-                    st.session_state["num_diam_barra"] = float(last_hist.get("Diâmetro (mm)", 15.0))
-                    st.session_state["num_di_ext"] = float(last_hist.get("Diâmetro Externo (mm)", 20.0))
-                    st.session_state["num_di_int"] = float(last_hist.get("Diâmetro Interno (mm)", 10.0))
-                    st.session_state["num_peso_metro"] = float(last_hist.get("Total Kg Lote", 10.0))
-                    st.session_state["num_peso_peca"] = float(last_hist.get("Total Kg Lote", 10.0))
-                    st.session_state["num_peso_fornecido"] = float(last_hist.get("Total Kg Lote", 0.0))
-                    st.session_state["slider_lucro_aba1"] = int(last_hist.get("Margem Lucro (%)", 30))
-                    
-                    if "Usinagem_JSON" in last_hist:
-                        st.session_state["df_usinagem_v3"] = pd.read_json(last_hist["Usinagem_JSON"])
-                    if "Tratamento_JSON" in last_hist:
-                        st.session_state["df_tratamento_v3"] = pd.read_json(last_hist["Tratamento_JSON"])
-                        
-                    # Deleta o cache visual dos editores de tabela para forçar a reconstrução com os dados do histórico
-                    if "editor_usinagem_aba1" in st.session_state: del st.session_state["editor_usinagem_aba1"]
-                    if "editor_tratamentos_aba1" in st.session_state: del st.session_state["editor_tratamentos_aba1"]
-                        
-                    st.success("⚡ Todos os campos, dimensões, roteiros e lucros foram restaurados!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Erro ao autocompletar: {e}")
+        st.button("📋 Completar Dados com Roteiro Antigo", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
 
     st.markdown("---")
 
-    # --- BLOCO 3: MATÉRIA-PRIMA CONDICIONAL REAL (CORRIGIDO) ---
+    # --- BLOCO 3: MATÉRIA-PRIMA CONDICIONAL REAL ---
     st.subheader("🧱 Definição da Matéria-Prima")
     opcoes_mp = ["Por Peso (Barra Maciça/Sextavada)", "Por Peso (Tubo/Bucha)", "Por Metro Linear", "Por Peça Pronta", "Fornecido pelo Cliente (Mão de Obra Pura)"]
     if st.session_state["sel_tipo_mp"] not in opcoes_mp: st.session_state["sel_tipo_mp"] = opcoes_mp[0]
@@ -181,13 +197,12 @@ with aba_calculo:
     detalhes_material = ""
     material_sel, diametro, di_ext, di_int = "N/A", 0.0, 0.0, 0.0
 
-    # AJUSTE SOLICITADO: Se for material do cliente, o preço por kg desaparece por completo e zera custos de material
     if tipo_mp == "Fornecido pelo Cliente (Mão de Obra Pura)":
         total_quilos = st.number_input("Peso total estimado do lote enviado pelo cliente (kg) [Essencial caso haja tratamento]", min_value=0.0, step=0.1, key="num_peso_fornecido")
         custo_total_material = 0.0
         preco_unitario_mp = 0.0
         detalhes_material = "Fornecido pelo Cliente"
-        st.info("ℹ️ Material fornecido pelo cliente. Campo de Preço por KG ocultado. Custo de Matéria-Prima: R$ 0,00.")
+        st.info("ℹ️ Material fornecido pelo cliente. Preço por KG ocultado da tela. Custo de MP zerado automaticamente.")
     else:
         col_mat1, col_mat2, col_mat3 = st.columns(3)
         with col_mat1:
@@ -331,15 +346,15 @@ with aba_calculo:
             df_hist = df_novo
         df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
         
-        # Reseta os seletores para o próximo estado limpo
+        # Reseta estados de memória
         st.session_state["dados_carregados"] = {}
-        st.success("✅ Cotação salva e catalogada com sucesso!")
+        st.success("✅ Cotação salva com sucesso!")
         st.rerun()
 
 # =============================================================================
-# ABA 2: HISTÓRICO & PREÇOS ATUAIS
+# TELA 2: HISTÓRICO & PREÇOS ATUAIS
 # =============================================================================
-with aba_historico:
+elif opcao_menu == "📜 2. Histórico & Preços Atuais":
     st.subheader("📜 Histórico e Banco de Preços")
     if not os.path.exists(ARQUIVO_HISTORICO):
         st.info("Nenhum orçamento gerado ainda no sistema.")
@@ -372,9 +387,9 @@ with aba_historico:
             ]], use_container_width=True)
 
 # =============================================================================
-# ABA 3: CONFIGURAÇÕES DE CUSTOS & RECÁLCULO EM MASSA (Centralizado)
+# TELA 3: CONFIGURAÇÕES E RECÁLCULO EM MASSA
 # =============================================================================
-with aba_config:
+elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
     st.subheader("⚙️ Painel de Controle de Custos Fixos")
     col_cfg1, col_cfg2 = st.columns(2)
     
