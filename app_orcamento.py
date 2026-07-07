@@ -4,8 +4,8 @@ from datetime import datetime
 import json
 import os
 
-# 1. CONFIGURAÇÕES INICIAIS DA PÁGINA (Sempre no topo)
-st.set_page_config(page_title="Orçamentos Lenoor V2", page_icon="⚙️", layout="wide")
+# 1. CONFIGURAÇÕES INICIAIS DA PÁGINA
+st.set_page_config(page_title="Sistema União - Orçamentos v2", page_icon="⚙️", layout="wide")
 
 # Nome do arquivo de banco de dados local
 ARQUIVO_HISTORICO = "historico_orcamentos_estruturado.csv"
@@ -17,7 +17,7 @@ DADOS_MATERIAIS = {
     "latao red": 0.68, "latao quad": 0.78, "latao sx": 0.72
 }
 
-# 2. INICIALIZAÇÃO DE VARIÁVEIS DE SESSÃO (Garante estabilidade dos dados)
+# 2. INICIALIZAÇÃO DE VARIÁVEIS DE SESSÃO
 if "valores_maquinas" not in st.session_state:
     st.session_state.valores_maquinas = {
         "CNC": 150.0, "Torno Automático": 120.0, "Freza": 120.0,
@@ -29,11 +29,11 @@ if "impostos" not in st.session_state:
 if "dados_carregados" not in st.session_state:
     st.session_state.dados_carregados = None
 
-# Atalhos para os valores atuais configurados
+# Atalhos para as configurações atuais
 valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
 
-st.title("Sistema Orçamentos Lenoor")
+st.title("🛠️ Sistema União de Orçamentos")
 
 # 3. CRIAÇÃO DAS ABAS NA TELA
 aba_calculo, aba_historico, aba_config = st.tabs([
@@ -43,7 +43,7 @@ aba_calculo, aba_historico, aba_config = st.tabs([
 ])
 
 # =============================================================================
-# ABA 1: NOVO ORÇAMENTO (Tudo isolado aqui dentro)
+# ABA 1: NOVO ORÇAMENTO
 # =============================================================================
 with aba_calculo:
     st.subheader("👤 Dados do Cliente")
@@ -51,7 +51,7 @@ with aba_calculo:
     with col_cli1:
         empresa = st.text_input("Empresa/Cliente", value="", placeholder="Ex: TS", key="txt_empresa")
     with col_cli2:
-        comprador = st.text_input("Comprador Responsável", value="", placeholder="Ex: Guilherme", key="txt_comprador")
+        comprador = st.text_input("Comprador Responsible", value="", placeholder="Ex: Guilherme", key="txt_comprador")
 
     st.markdown("---")
     
@@ -61,7 +61,6 @@ with aba_calculo:
     with col_prod1:
         codigo_peca = st.text_input("Código da Peça", value="", placeholder="Ex: TS-8-030-XXXX", key="txt_codigo")
         
-        # Busca por histórico anterior
         if codigo_peca and os.path.exists(ARQUIVO_HISTORICO):
             df_hist_busca = pd.read_csv(ARQUIVO_HISTORICO)
             df_filtrado = df_hist_busca[df_hist_busca["Código da Peça"] == codigo_peca]
@@ -71,7 +70,6 @@ with aba_calculo:
                     st.session_state.dados_carregados = df_filtrado.iloc[-1].to_dict()
                     st.rerun()
 
-    # Recupera dados se o usuário aceitou carregar o histórico
     hist = st.session_state.dados_carregados if st.session_state.dados_carregados else {}
     
     with col_prod2:
@@ -187,7 +185,7 @@ with aba_calculo:
     st.subheader("📈 Margem de Lucro e Fechamento")
     porcentagem_lucro = st.slider("Selecione a Margem de Lucro desejada (%)", min_value=15, max_value=95, value=30, step=5, key="slider_lucro_aba1")
 
-    # Cálculos Matemáticos Finais (Regra Tradicional do seu pai)
+    # Cálculos Matemáticos Finais (Regra Tradicional)
     custo_bruto_total = custo_total_material + custo_total_usinagem + custo_total_tratamentos
     valor_com_lucro = custo_bruto_total / (1 - (porcentagem_lucro / 100))
     lucro_bruto_real = valor_com_lucro - custo_bruto_total
@@ -219,6 +217,8 @@ with aba_calculo:
             "Custo Material (R$)": round(custo_total_material, 2),
             "Custo Tratamento (R$)": round(custo_total_tratamentos, 2),
             "Margem Lucro (%)": porcentagem_lucro,
+            "Preço Total Lote (R$)": round(preco_venda_lote, 2),      # ADICIONADO: Agora salva o preço histórico fixo
+            "Preço Unitário (R$)": round(preco_unitario_final, 2),    # ADICIONADO: Agora salva o preço unitário histórico fixo
             "Usinagem_JSON": usinagem_json_str
         }
         df_novo = pd.DataFrame([novo_registro])
@@ -242,6 +242,7 @@ with aba_historico:
         df_completo = pd.read_csv(ARQUIVO_HISTORICO)
         opcao_visao = st.radio("Selecione a visualização dos dados:", ["🎯 Preços Atuais (Última Versão por Peça/Empresa)", "⏳ Histórico de Alterações Completo"], key="rad_visao_aba2")
         
+        # Função para processar o recálculo com taxas novas
         def processar_recalculo(dataframe_base):
             linhas_recalculadas = []
             for _, row in dataframe_base.iterrows():
@@ -271,21 +272,46 @@ with aba_historico:
                 except: pass
             return pd.DataFrame(linhas_recalculadas)
 
+        # SEURANÇA RETROATIVA: Se colunas de preço final não existirem em testes antigos, calcula agora na memória para mostrar
+        if "Preço Total Lote (R$)" not in df_completo.columns:
+            df_completo["Preço Total Lote (R$)"] = None
+        if "Preço Unitário (R$)" not in df_completo.columns:
+            df_completo["Preço Unitário (R$)"] = None
+
+        for idx, row in df_completo.iterrows():
+            if pd.isna(row["Preço Total Lote (R$)"]) or pd.isna(row["Preço Unitário (R$)"]):
+                try:
+                    roteiro = json.loads(row["Usinagem_JSON"])
+                    custo_u = sum([(row["Lote"] / op["Peças por Hora"]) * valores_maquinas.get(op["Máquina"], 120.0) for op in roteiro])
+                    custo_f = row["Custo Material (R$)"] + custo_u + row["Custo Tratamento (R$)"]
+                    v_luc = custo_f / (1 - (row["Margem Lucro (%)"] / 100))
+                    t_impost = v_luc * ((impostos["IR"] + impostos["FS"]) / 100)
+                    df_completo.at[idx, "Preço Total Lote (R$)"] = round(v_luc + t_impost, 2)
+                    df_completo.at[idx, "Preço Unitário (R$)"] = round((v_luc + t_impost) / row["Lote"], 2)
+                except: pass
+
         if opcao_visao == "⏳ Histórico de Alterações Completo":
             st.subheader("📋 Registro Cronológico Completo")
             st.dataframe(df_completo.iloc[::-1], use_container_width=True)
         else:
             st.subheader("🎯 Tabela de Preços Atuais (Organizado por Empresa)")
+            
+            # Agrupa para pegar o registro mais recente de cada código de peça
             df_ultimos_precos = df_completo.sort_values("Data/Hora").groupby("Código da Peça").last().reset_index()
             df_ultimos_precos = df_ultimos_precos.sort_values(by="Empresa")
-            st.dataframe(df_ultimos_precos[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Custo Material (R$)", "Custo Tratamento (R$)"]], use_container_width=True)
+            
+            # CORREÇÃO AQUI: Agora a tabela foca 100% no preço de venda que interessa ao comercial!
+            st.dataframe(df_ultimos_precos[[
+                "Empresa", "Código da Peça", "Nome da Peça", "Lote", 
+                "Preço Unitário (R$)", "Preço Total Lote (R$)"
+            ]], use_container_width=True)
             
             st.markdown("### 🍒 Recálculo Geral em Massa")
             st.write("Clique no botão abaixo para aplicar as novas taxas de máquinas/impostos da Aba 3 em todos os clientes cadastrados simultaneamente:")
             if st.button("🔄 Recalcular Todos os Preços Atuais", type="primary", key="btn_recalc_aba2"):
                 df_atualizado = processar_recalculo(df_ultimos_precos)
                 if not df_atualizado.empty:
-                    st.success("🚀 Preços recalculados com sucesso!")
+                    st.success("🚀 Preços recalculados com sucesso com as taxas vigentes!")
                     st.dataframe(df_atualizado, use_container_width=True)
                     csv_export = df_atualizado.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Baixar Tabela Atualizada (Excel/CSV)", data=csv_export, file_name="precos_atualizados_usinagem.csv", mime="text/csv", key="btn_dl_csv")
