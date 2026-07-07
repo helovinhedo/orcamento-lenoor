@@ -94,12 +94,14 @@ if "menu_anterior" not in st.session_state:
     st.session_state.menu_anterior = ""
 if "df_recalculado_resultado" not in st.session_state:
     st.session_state["df_recalculado_resultado"] = None
+if "msg_sucesso_persistente" not in st.session_state:
+    st.session_state["msg_sucesso_persistente"] = ""  
 if "editor_version" not in st.session_state:
     st.session_state.editor_version = 0  
 if "taxas_original_msg" not in st.session_state:
     st.session_state["taxas_original_msg"] = ""
 
-# Inicialização de chaves de widgets (Margem padrão fixada em 5mm)
+# Inicialização de chaves de widgets (Margem padrão inicial fixada em 5mm)
 valores_padrao_widgets = {
     "sel_empresa_aba1": "", "txt_comprador": "", "sel_codigo_peca": "", "txt_nome_peca": "",
     "num_lote": 100, "num_comprimento": 0.0, "num_margem_corte": 5.0, 
@@ -168,23 +170,25 @@ def carregar_roteiro_antigo_callback():
                 st.session_state["num_di_int"] = max(0.0, safe_float(last_hist.get("Diâmetro Interno (mm)", 10.0)))
                 st.session_state["slider_lucro_aba1"] = clip_lucro(safe_int(last_hist.get("Margem Lucro (%)", 30)))
                 
+                # CORREÇÃO CRÍTICA DO CORPO DA TABELA: Filtra estritamente as colunas configuradas para o editor
                 if "Usinagem_JSON" in last_hist and safe_str(last_hist["Usinagem_JSON"]) not in ["", "[]"]:
                     df_usi_carregado = pd.read_json(io.StringIO(last_hist["Usinagem_JSON"]))
                     
-                    # PONTO CORRIGIDO: Se a taxa antiga vier como nula (None) de registros antigos, ele puxa o valor padrão de referência atual
                     if "Preço/Hora_Aplicado" in df_usi_carregado.columns:
                         df_usi_carregado["Preço/Hora_Aplicado"] = df_usi_carregado.apply(
                             lambda r: st.session_state.valores_maquinas.get(r["Máquina"], 120.0) if pd.isna(r["Preço/Hora_Aplicado"]) or r["Preço/Hora_Aplicado"] is None else r["Preço/Hora_Aplicado"], axis=1
                         )
                         resumo_taxas = " | ".join([f"{r['Máquina']}: R$ {r['Preço/Hora_Aplicado']}/h" for _, r in df_usi_carregado.drop_duplicates(subset=['Máquina']).iterrows()])
-                        st.session_state["taxas_original_msg"] = f"Taxas de hora-maquina aplicadas no último cálculo desta peça: {resumo_taxas}"
+                        st.session_state["taxas_original_msg"] = f"Taxas de hora-máquina aplicadas no último cálculo desta peça: {resumo_taxas}"
                     else:
                         st.session_state["taxas_original_msg"] = "Taxas de hora-máquina: Histórico detalhado indisponível para este registro antigo."
                     
-                    st.session_state["df_usinagem_v3"] = df_usi_carregado
+                    # Filtra mantendo apenas as colunas mapeadas do editor dinâmico
+                    st.session_state["df_usinagem_v3"] = df_usi_carregado[["Operação", "Máquina", "Peças por Hora"]].copy()
                 
                 if "Tratamento_JSON" in last_hist and safe_str(last_hist["Tratamento_JSON"]) not in ["", "[]"]:
-                    st.session_state["df_tratamento_v3"] = pd.read_json(io.StringIO(last_hist["Tratamento_JSON"]))
+                    df_trat_carregado = pd.read_json(io.StringIO(last_hist["Tratamento_JSON"]))
+                    st.session_state["df_tratamento_v3"] = df_trat_carregado[["Tratamento", "Preço por Kg (R$)"]].copy()
                     
                 st.session_state.editor_version += 1
         except Exception as e:
@@ -205,6 +209,7 @@ st.sidebar.markdown("---")
 st.sidebar.caption("Lenoor S/A v3.6 - Estabilidade Total")
 
 if opcao_menu != st.session_state.menu_anterior:
+    st.session_state["msg_sucesso_persistente"] = ""
     st.session_state["df_recalculado_resultado"] = None  
     st.session_state["taxas_original_msg"] = ""
     st.session_state.menu_anterior = opcao_menu
@@ -222,13 +227,18 @@ if opcao_menu == "📊 1. Novo Orçamento":
     
     with col_cli1:
         opces_empresa = [""] + lista_empresas + ["➕ Novo Cliente..."]
-        empresa_sel = st.selectbox("Empresa/Cliente", opces_empresa, key="sel_empresa_aba1")
+        try: idx_emp = opces_empresa.index(st.session_state["sel_empresa_aba1"])
+        except: idx_emp = 0
+        empresa_sel = st.selectbox("Empresa/Cliente", opces_empresa, index=idx_emp)
+        st.session_state["sel_empresa_aba1"] = empresa_sel
+        
         if empresa_sel == "➕ Novo Cliente...":
             empresa = st.text_input("Digite o nome do Novo Cliente", placeholder="Ex: TS", key="txt_nova_empresa").strip()
         else: empresa = empresa_sel
             
     with col_cli2:
-        comprador = st.text_input("Comprador Responsible", placeholder="Ex: Guilherme", key="txt_comprador").strip()
+        comprador = st.text_input("Comprador Responsável", value=st.session_state["txt_comprador"], placeholder="Ex: Guilherme")
+        st.session_state["txt_comprador"] = comprador
 
     st.markdown("---")
     st.subheader("📦 Dados do Produto")
@@ -236,9 +246,14 @@ if opcao_menu == "📊 1. Novo Orçamento":
     
     with col_cod_linha1:
         opcoes_codigo = [""] + lista_codigos + ["➕ Novo Código..."]
-        codigo_sel = st.selectbox("Código da Peça (Selecione ou digite para buscar)", opcoes_codigo, key="sel_codigo_peca")
+        try: idx_cod = opcoes_codigo.index(st.session_state["sel_codigo_peca"])
+        except: idx_cod = 0
+        codigo_sel = st.selectbox("Código da Peça (Selecione ou digite para buscar)", opcoes_codigo, index=idx_cod)
+        st.session_state["sel_codigo_peca"] = codigo_sel
+        
         if codigo_sel == "➕ Novo Código...":
-            codigo_peca = st.text_input("Escreva o Código Novo do Produto:", placeholder="Ex: TS-8-030-XXXX", key="txt_novo_codigo").strip()
+            codigo_peca = st.text_input("Escreva o Código Novo do Produto:", value=st.session_state["txt_novo_codigo"], placeholder="Ex: TS-8-030-XXXX")
+            st.session_state["txt_novo_codigo"] = codigo_peca
         else: codigo_peca = codigo_sel
 
     with col_cod_linha2:
@@ -251,18 +266,25 @@ if opcao_menu == "📊 1. Novo Orçamento":
 
     col_dados_p1, col_dados_p2, col_dados_p3, col_dados_p4 = st.columns(4)
     with col_dados_p1:
-        nome_peca = st.text_input("Nome da Peça", key="txt_nome_peca").strip()
+        nome_peca = st.text_input("Nome da Peça", value=st.session_state["txt_nome_peca"])
+        st.session_state["txt_nome_peca"] = nome_peca
     with col_dados_p2:
-        lote = st.number_input("Quantidade do Lote", min_value=1, step=1, key="num_lote")
+        lote = st.number_input("Quantidade do Lote", min_value=1, step=1, value=int(st.session_state["num_lote"]))
+        st.session_state["num_lote"] = lote
     with col_dados_p3:
-        comprimento = st.number_input("Comprimento da Peça (mm)", min_value=0.0, step=0.1, key="num_comprimento")
+        comprimento = st.number_input("Comprimento da Peça (mm)", min_value=0.0, step=0.1, value=float(st.session_state["num_comprimento"]))
+        st.session_state["num_comprimento"] = comprimento
     with col_dados_p4:
-        margem_corte = st.number_input("Margem de Corte/Perda (mm)", min_value=0.0, step=0.1, key="num_margem_corte")
+        margem_corte = st.number_input("Margem de Corte/Perda (mm)", min_value=0.0, step=0.1, value=float(st.session_state["num_margem_corte"]))
+        st.session_state["num_margem_corte"] = margem_corte
 
     st.markdown("---")
     st.subheader("🧱 Definição da Matéria-Prima")
     opcoes_mp = ["Por Peso (Barra Maciça/Sextavada)", "Por Peso (Tubo/Bucha)", "Por Metro Linear", "Por Peça Pronta", "Fornecido pelo Cliente (Mão de Obra Pura)"]
-    tipo_mp = st.selectbox("Como a Matéria-Prima será contabilizada?", opcoes_mp, key="sel_tipo_mp")
+    try: idx_mp = opcoes_mp.index(st.session_state["sel_tipo_mp"])
+    except: idx_mp = 0
+    tipo_mp = st.selectbox("Como a Matéria-Prima será contabilizada?", opcoes_mp, index=idx_mp)
+    st.session_state["sel_tipo_mp"] = tipo_mp
     
     custo_total_material = 0.0
     total_quilos = 0.0
@@ -271,28 +293,36 @@ if opcao_menu == "📊 1. Novo Orçamento":
     material_sel, diametro, di_ext, di_int = "N/A", 0.0, 0.0, 0.0
 
     if tipo_mp == "Fornecido pelo Cliente (Mão de Obra Pura)":
-        total_quilos = st.number_input("Peso total estimado do lote enviado pelo cliente (kg) [Essencial caso haja tratamento]", min_value=0.0, step=0.1, key="num_peso_fornecido")
+        total_quilos = st.number_input("Peso total estimado do lote enviado pelo cliente (kg) [Essencial caso haja tratamento]", min_value=0.0, step=0.1, value=float(st.session_state["num_peso_fornecido"]))
+        st.session_state["num_peso_fornecido"] = total_quilos
         detalhes_material = "Fornecido pelo Cliente"
         st.info("ℹ️ Material fornecido pelo parceiro. Custo de MP zerado automaticamente.")
     else:
         col_mat1, col_mat2, col_mat3 = st.columns(3)
         with col_mat1:
-            preco_unitario_mp = st.number_input("Preço Atual da MP (R$ por Kg, Metro ou Peça)", min_value=0.0, step=1.0, key="num_preco_mp")
+            preco_unitario_mp = st.number_input("Preço Atual da MP (R$ por Kg, Metro ou Peça)", min_value=0.0, step=1.0, value=float(st.session_state["num_preco_mp"]))
+            st.session_state["num_preco_mp"] = preco_unitario_mp
 
         if "Por Peso" in tipo_mp:
             with col_mat2:
                 opcoes_liga = list(DADOS_MATERIAIS.keys())
-                material_sel = st.selectbox("Selecione a Liga (Constante)", opcoes_liga, key="sel_liga")
+                try: idx_liga = opcoes_liga.index(st.session_state["sel_liga"])
+                except: idx_liga = 0
+                material_sel = st.selectbox("Selecione a Liga (Constante)", opcoes_liga, index=idx_liga)
+                st.session_state["sel_liga"] = material_sel
                 constante = DADOS_MATERIAIS.get(material_sel, 0.0)
             
             if tipo_mp == "Por Peso (Barra Maciça/Sextavada)":
                 with col_mat3:
-                    diametro = st.number_input("Diâmetro da Barra (mm)", min_value=0.0, step=0.1, key="num_diam_barra")
+                    diametro = st.number_input("Diâmetro da Barra (mm)", min_value=0.0, step=0.1, value=float(st.session_state["num_diam_barra"]))
+                    st.session_state["num_diam_barra"] = diametro
                 peso_por_metro = ((diametro ** 2) * constante) / 100
             else:
                 with col_mat3:
-                    di_ext = st.number_input("Diâmetro Externo (mm)", min_value=0.0, step=0.1, key="num_di_ext")
-                    di_int = st.number_input("Diâmetro Interno/Furo (mm)", min_value=0.0, step=0.1, key="num_di_int")
+                    di_ext = st.number_input("Diâmetro Externo (mm)", min_value=0.0, step=0.1, value=float(st.session_state["num_di_ext"]))
+                    di_int = st.number_input("Diâmetro Interno/Furo (mm)", min_value=0.0, step=0.1, value=float(st.session_state["num_di_int"]))
+                    st.session_state["num_di_ext"] = di_ext
+                    st.session_state["num_di_int"] = di_int
                 peso_por_metro = max(0.0, ((di_ext ** 2) - (di_int ** 2)) * constante / 100)
 
             total_metros = ((comprimento + margem_corte) * lote) / 1000
@@ -305,13 +335,15 @@ if opcao_menu == "📊 1. Novo Orçamento":
             custo_total_material = total_metros * preco_unitario_mp
             detalhes_material = f"{total_metros:.2f} m"
             with col_mat2:
-                total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.0, step=0.1, key="num_peso_metro")
+                total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.0, step=0.1, value=float(st.session_state["num_peso_metro"]))
+                st.session_state["num_peso_metro"] = total_quilos
 
         elif tipo_mp == "Por Peça Pronta":
             custo_total_material = lote * preco_unitario_mp
             detalhes_material = f"{lote} Peças base"
             with col_mat2:
-                total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.0, step=0.1, key="num_peso_peca")
+                total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.0, step=0.1, value=float(st.session_state["num_peso_peca"]))
+                st.session_state["num_peso_peca"] = total_quilos
 
     st.metric("Custo Total da Matéria-Prima", f"R$ {custo_total_material:.2f}", help=f"Peso total considerado: {total_quilos:.2f} kg")
     st.markdown("---")
@@ -329,6 +361,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         use_container_width=True,
         key=f"editor_usinagem_aba1_v_{st.session_state.editor_version}"
     )
+    st.session_state["df_usinagem_v3"] = df_usinagem_input
     
     custo_total_usinagem = 0.0
     if isinstance(df_usinagem_input, pd.DataFrame) and not df_usinagem_input.empty:
@@ -354,6 +387,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         use_container_width=True,
         key=f"editor_tratamentos_aba1_v_{st.session_state.editor_version}"
     )
+    st.session_state["df_tratamento_v3"] = df_trat_input
 
     soma_preco_kg_tratamento = 0.0
     if isinstance(df_trat_input, pd.DataFrame) and not df_trat_input.empty:
@@ -367,7 +401,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
 
     # --- LUCRO E FECHAMENTO ---
     st.subheader("📈 Margem de Lucro e Fechamento")
-    porcentagem_lucro = st.slider("Selecione a Margem de Lucro desejada (%)", min_value=15, max_value=95, step=5, key="slider_lucro_aba1")
+    porcentagem_lucro = st.slider("Selecione a Margem de Lucro desejada (%)", min_value=15, max_value=95, value=int(st.session_state["slider_lucro_aba1"]), step=5)
+    st.session_state["slider_lucro_aba1"] = porcentagem_lucro
 
     custo_bruto_total = custo_total_material + custo_total_usinagem + custo_total_tratamentos
     
@@ -438,7 +473,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
             st.session_state.editor_version += 1
             st.rerun()
 
-    # MUDANÇA ENGENHARIA DE TELAS: O aviso verde agora é renderizado exatamente aqui, logo abaixo do botão de salvar!
+    # POSICIONAMENTO FIXO: Renderiza o banner verde grudado aqui embaixo do botão de salvar!
     if st.session_state["msg_sucesso_persistente"]:
         st.success(st.session_state["msg_sucesso_persistente"])
         st.session_state["msg_sucesso_persistente"] = ""
@@ -516,7 +551,9 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
         st.toast("⚙️ Configurações Salvas Permanentemente!", icon="💾")
         st.rerun()
 
-    # CEREJA DO BOLO CORRIGIDA EM ARQUITETURA DE DADOS (Usa as variáveis do input direto, sem exigir o clique prévio de salvar)
+    valores_maquinas = st.session_state.valores_maquinas
+    impostos = st.session_state.impostos
+
     def processar_e_salvar_recalculo(dataframe_base, maquinas_vivas, impostos_vivos):
         linhas_recalculadas = []
         novas_linhas_historico = []
@@ -549,7 +586,6 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                         pcs_h = safe_float(op.get("Peças por Hora"), 50.0)
                         if pcs_h <= 0: pcs_h = 50.0
                         m_nome = safe_str(op.get("Máquina"), "Outro")
-                        # Lógica Viva: Puxa o valor digitado nas caixas de texto agora
                         novo_custo_usinagem += (lote_recalc / pcs_h) * maquinas_vivas.get(m_nome, 120.0)
                 
                 c_material = safe_float(row_clean.get("Custo Material (R$)"))
@@ -559,9 +595,10 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                 fator_m = (1 - (safe_float(row_clean.get("Margem Lucro (%)", 30)) / 100))
                 if fator_m <= 0: fator_m = 0.05
                     
-                valor_lucro_novo = custo_fabrica_novo / fator_m
+                valor_com_lucro_novo = custo_fabrica_novo / fator_m
                 total_imp_pct = safe_float(impostos_vivos.get("IR")) + safe_float(impostos_vivos.get("FS"))
-                preco_lote_novo = valor_lucro_novo + (valor_lucro_novo * (total_imp_pct / 100))
+                
+                preco_lote_novo = valor_com_lucro_novo + (valor_com_lucro_novo * (total_imp_pct / 100))
                 preco_unit_novo = preco_lote_novo / lote_recalc
                 
                 linhas_recalculadas.append({
@@ -586,7 +623,8 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                 row_clean["Preço Total Lote (R$)"] = round(preco_lote_novo, 2)
                 row_clean["Preço Unitário (R$)"] = round(preco_unit_novo, 2)
                 novas_linhas_historico.append(row_clean)
-            except: pass
+            except: 
+                pass
                 
         if novas_linhas_historico:
             df_novos_recalc = pd.DataFrame(novas_linhas_historico)
@@ -605,7 +643,6 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
         clientes_para_recalc = sorted(df_recalc_base["Empresa"].dropna().astype(str).unique().tolist())
         clientes_selecionados = st.multiselect("Filtrar clientes para o recálculo:", options=clientes_para_recalc, placeholder="Deixe vazio para recalcular TODOS os clientes", key="multiselect_recalc_aba3")
         
-        # Injeção das variáveis vivas de forma explícita na chamada do método
         if st.button("🔄 Executar Recálculo de Tarifas e Gravar", type="secondary", key="btn_recalc_aba3"):
             df_recalc_base['_dt_temp'] = pd.to_datetime(df_recalc_base["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
             df_ultimos_recalc = df_recalc_base.sort_values("_dt_temp").groupby("Código da Peça").last().reset_index()
