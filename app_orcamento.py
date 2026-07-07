@@ -28,11 +28,14 @@ if "impostos" not in st.session_state:
     st.session_state.impostos = {"IR": 6.0, "FS": 4.0}
 if "dados_carregados" not in st.session_state:
     st.session_state.dados_carregados = {}
+if "mensagem_sucesso" not in st.session_state:
+    st.session_state.mensagem_sucesso = ""
 
-# Inicialização das chaves de inputs para o Autocomplete seguro em callbacks
+# Inicialização padrão de chaves para evitar loops visuais do Streamlit
 if "sel_empresa_aba1" not in st.session_state: st.session_state["sel_empresa_aba1"] = ""
 if "txt_comprador" not in st.session_state: st.session_state["txt_comprador"] = ""
 if "sel_codigo_peca" not in st.session_state: st.session_state["sel_codigo_peca"] = ""
+if "txt_novo_codigo" not in st.session_state: st.session_state["txt_novo_codigo"] = ""
 if "txt_nome_peca" not in st.session_state: st.session_state["txt_nome_peca"] = ""
 if "num_lote" not in st.session_state: st.session_state["num_lote"] = 100
 if "num_comprimento" not in st.session_state: st.session_state["num_comprimento"] = 0.0
@@ -64,7 +67,7 @@ if os.path.exists(ARQUIVO_HISTORICO):
     except:
         pass
 
-# --- FUNÇÃO DE CALLBACK PARA AUTOCOMPLETE (Roda antes da renderização da tela) ---
+# --- FUNÇÃO DE CALLBACK PARA AUTOCOMPLETE SEGURO ---
 def carregar_roteiro_antigo_callback():
     codigo_target = st.session_state["sel_codigo_peca"]
     if codigo_target and codigo_target != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
@@ -75,7 +78,7 @@ def carregar_roteiro_antigo_callback():
                 last_hist = df_filtrado.iloc[-1].to_dict()
                 st.session_state["dados_carregados"] = last_hist
                 
-                # Injeta os dados históricos na raiz das chaves
+                # Injeta os dados históricos de forma legal na memória
                 st.session_state["sel_empresa_aba1"] = last_hist.get("Empresa", "")
                 st.session_state["txt_comprador"] = last_hist.get("Comprador", "")
                 st.session_state["txt_nome_peca"] = last_hist.get("Nome da Peça", "")
@@ -100,6 +103,8 @@ def carregar_roteiro_antigo_callback():
                     
                 if "editor_usinagem_aba1" in st.session_state: del st.session_state["editor_usinagem_aba1"]
                 if "editor_tratamentos_aba1" in st.session_state: del st.session_state["editor_tratamentos_aba1"]
+                
+                st.session_state["mensagem_sucesso"] = "📋 Dados e roteiros antigos restaurados com sucesso para a tela!"
         except:
             pass
 
@@ -107,24 +112,29 @@ valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
 
 # =============================================================================
-# 🧭 MENU NA BARRA LATERAL (SUBSTITUI AS ABAS SUPERIORES)
+# 🧭 NAVEGAÇÃO LATERAL (BLINDAGEM CONTRA MIX DE ABAS)
 # =============================================================================
 st.sidebar.title("🧭 Menu Lenoor")
 opcao_menu = st.sidebar.radio(
-    "Navegue pelas telas do sistema:",
+    "Selecione a tela ativa:",
     [
         "📊 1. Novo Orçamento", 
         "📜 2. Histórico & Preços Atuais", 
         "⚙️ 3. Configurações de Custos e Impostos"
     ]
 )
-
 st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor Usinagem v3.0 - Offline Mode")
+st.sidebar.caption("Lenoor S/A v3.1 - Estabilidade Total")
 
-# Título principal estático
+# Título Estático Principal
 st.title("Sistema Lenoor de Orçamentos")
-st.markdown(f"**Tela ativa:** {opcao_menu}")
+
+# PONTO 1: Exibe a mensagem de sucesso persistida no topo se ela existir
+if st.session_state.mensagem_sucesso:
+    st.success(st.session_state.mensagem_sucesso)
+    st.session_state.mensagem_sucesso = "" # limpa para a próxima rodada
+
+st.markdown(f"**Navegação atual:** {opcao_menu}")
 st.markdown("---")
 
 # =============================================================================
@@ -153,35 +163,40 @@ if opcao_menu == "📊 1. Novo Orçamento":
 
     st.markdown("---")
     
-    # --- BLOCO 2: DADOS DO PRODUTO ---
+    # --- BLOCO 2: DADOS DO PRODUTO (PONTOS 2 E 3 CORRIGIDOS - ALINHADOS LADO A LADO) ---
     st.subheader("📦 Dados do Produto")
-    col_prod1, col_prod2, col_prod3 = st.columns(3)
     
-    with col_prod1:
+    col_cod_linha1, col_cod_linha2 = st.columns([3, 1])
+    
+    with col_cod_linha1:
         opcoes_codigo = [""] + lista_codigos + ["➕ Novo Código..."]
         if st.session_state["sel_codigo_peca"] not in opcoes_codigo and st.session_state["sel_codigo_peca"] != "":
             opcoes_codigo.insert(1, st.session_state["sel_codigo_peca"])
             
-        codigo_sel = st.selectbox("Código da Peça", opcoes_codigo, key="sel_codigo_peca")
+        codigo_sel = st.selectbox("Código da Peça (Selecione ou digite para buscar)", opcoes_codigo, key="sel_codigo_peca")
+        
+        # PONTO 2: Input blindado para novos códigos. O foco do teclado não some mais!
         if codigo_sel == "➕ Novo Código...":
-            codigo_peca = st.text_input("Digite o Novo Código", placeholder="Ex: TS-8-030-XXXX", key="txt_novo_codigo")
+            codigo_peca = st.text_input("Escreva o Código Novo do Produto:", placeholder="Ex: TS-8-030-XXXX", key="txt_novo_codigo")
         else:
             codigo_peca = codigo_sel
 
-    with col_prod2:
+    with col_cod_linha2:
+        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True) # Alinhador vertical do botão
+        # PONTO 3: Botão posicionado exatamente ao lado do campo do código
+        if codigo_sel and codigo_sel != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
+            st.button("📋 Completar dados com roteiro antigo", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
+
+    # Dados adicionais do produto que aparecem abaixo do cabeçalho de código
+    col_dados_p1, col_dados_p2, col_dados_p3, col_dados_p4 = st.columns(4)
+    with col_dados_p1:
         nome_peca = st.text_input("Nome da Peça", key="txt_nome_peca")
-    with col_prod3:
+    with col_dados_p2:
         lote = st.number_input("Quantidade do Lote", min_value=1, step=1, key="num_lote")
-
-    col_prod4, col_prod5 = st.columns(2)
-    with col_prod4:
+    with col_dados_p3:
         comprimento = st.number_input("Comprimento da Peça (mm)", min_value=0.0, step=0.1, key="num_comprimento")
-    with col_prod5:
-        margem_corte = st.number_input("Margem de Corte/Perda por peça (mm)", min_value=0.0, step=0.1, key="num_margem_corte")
-
-    # Botão de Autocomplete associado ao Callback
-    if codigo_sel and codigo_sel != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
-        st.button("📋 Completar Dados com Roteiro Antigo", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
+    with col_dados_p4:
+        margem_corte = st.number_input("Margem de Corte/Perda (mm)", min_value=0.0, step=0.1, key="num_margem_corte")
 
     st.markdown("---")
 
@@ -197,12 +212,13 @@ if opcao_menu == "📊 1. Novo Orçamento":
     detalhes_material = ""
     material_sel, diametro, di_ext, di_int = "N/A", 0.0, 0.0, 0.0
 
+    # AJUSTE DA MATÉRIA PRIMA DO CLIENTE: Esconde preço por kg, mantém só peso do lote
     if tipo_mp == "Fornecido pelo Cliente (Mão de Obra Pura)":
         total_quilos = st.number_input("Peso total estimado do lote enviado pelo cliente (kg) [Essencial caso haja tratamento]", min_value=0.0, step=0.1, key="num_peso_fornecido")
         custo_total_material = 0.0
         preco_unitario_mp = 0.0
         detalhes_material = "Fornecido pelo Cliente"
-        st.info("ℹ️ Material fornecido pelo cliente. Preço por KG ocultado da tela. Custo de MP zerado automaticamente.")
+        st.info("ℹ️ Material fornecido pelo parceiro. Campo de Preço por KG ocultado. Custo de Matéria-Prima definido como R$ 0,00.")
     else:
         col_mat1, col_mat2, col_mat3 = st.columns(3)
         with col_mat1:
@@ -310,46 +326,51 @@ if opcao_menu == "📊 1. Novo Orçamento":
     c3.metric(f"Impostos ({total_imposto_pct}%)", f"R$ {valor_impostos:.2f}")
     c4.metric("Preço UNITÁRIO Final", f"R$ {preco_unitario_final:.2f}")
 
+    # PONTO 1 CORRIGIDO: Mensagem de gravação agora salva na sessão antes do rerun
     if st.button("💾 Gravar no Histórico", type="primary", key="btn_salvar_aba1"):
-        usinagem_json_str = df_usinagem_input.to_json(orient='records')
-        tratamento_json_str = df_trat_input.to_json(orient='records')
-        
-        novo_registro = {
-            "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Código da Peça": codigo_peca if codigo_peca else "N/A",
-            "Nome da Peça": nome_peca if nome_peca else "N/A",
-            "Empresa": empresa if empresa else "N/A",
-            "Comprador": comprador if comprador else "N/A",
-            "Lote": lote,
-            "Comprimento (mm)": comprimento,
-            "Margem Corte (mm)": margem_corte,
-            "Tipo MP": tipo_mp,
-            "Preço MP Unitário": preco_unitario_mp,
-            "Liga": material_sel,
-            "Diâmetro (mm)": diametro,
-            "Diâmetro Externo (mm)": di_ext,
-            "Diâmetro Interno (mm)": di_int,
-            "Total Kg Lote": round(total_quilos, 3),
-            "Custo Material (R$)": round(custo_total_material, 2),
-            "Custo Tratamento (R$)": round(custo_total_tratamentos, 2),
-            "Margem Lucro (%)": porcentagem_lucro,
-            "Preço Total Lote (R$)": round(preco_venda_lote, 2),
-            "Preço Unitário (R$)": round(preco_unitario_final, 2),
-            "Usinagem_JSON": usinagem_json_str,
-            "Tratamento_JSON": tratamento_json_str
-        }
-        df_novo = pd.DataFrame([novo_registro])
-        if os.path.exists(ARQUIVO_HISTORICO):
-            df_hist = pd.read_csv(ARQUIVO_HISTORICO)
-            df_hist = pd.concat([df_hist, df_novo], ignore_index=True)
+        if not codigo_peca or codigo_peca == "➕ Novo Código...":
+            st.error("Por favor, preencha o código da peça antes de salvar!")
         else:
-            df_hist = df_novo
-        df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
-        
-        # Reseta estados de memória
-        st.session_state["dados_carregados"] = {}
-        st.success("✅ Cotação salva com sucesso!")
-        st.rerun()
+            usinagem_json_str = df_usinagem_input.to_json(orient='records')
+            tratamento_json_str = df_trat_input.to_json(orient='records')
+            
+            novo_registro = {
+                "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "Origem/Alteração": "Novo Orçamento", # PONTO 5: Identifica a ação
+                "Código da Peça": codigo_peca,
+                "Nome da Peça": nome_peca if nome_peca else "N/A",
+                "Empresa": empresa if empresa else "N/A",
+                "Comprador": comprador if comprador else "N/A",
+                "Lote": lote,
+                "Comprimento (mm)": comprimento,
+                "Margem Corte (mm)": margem_corte,
+                "Tipo MP": tipo_mp,
+                "Preço MP Unitário": preco_unitario_mp,
+                "Liga": material_sel,
+                "Diâmetro (mm)": diametro,
+                "Diâmetro Externo (mm)": di_ext,
+                "Diâmetro Interno (mm)": di_int,
+                "Total Kg Lote": round(total_quilos, 3),
+                "Custo Material (R$)": round(custo_total_material, 2),
+                "Custo Tratamento (R$)": round(custo_total_tratamentos, 2),
+                "Margem Lucro (%)": porcentagem_lucro,
+                "Preço Total Lote (R$)": round(preco_venda_lote, 2),
+                "Preço Unitário (R$)": round(preco_unitario_final, 2),
+                "Usinagem_JSON": usinagem_json_str,
+                "Tratamento_JSON": tratamiento_json_str
+            }
+            df_novo = pd.DataFrame([novo_registro])
+            if os.path.exists(ARQUIVO_HISTORICO):
+                df_hist = pd.read_csv(ARQUIVO_HISTORICO)
+                df_hist = pd.concat([df_hist, df_novo], ignore_index=True)
+            else:
+                df_hist = df_novo
+            df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
+            
+            # Trava a mensagem na sessão para ela durar após o recarregamento
+            st.session_state.mensagem_sucesso = f"✅ Sucesso! O orçamento do código '{codigo_peca}' foi gravado permanentemente!"
+            st.session_state["dados_carregados"] = {} 
+            st.rerun()
 
 # =============================================================================
 # TELA 2: HISTÓRICO & PREÇOS ATUAIS
@@ -361,6 +382,10 @@ elif opcao_menu == "📜 2. Histórico & Preços Atuais":
     else:
         df_completo = pd.read_csv(ARQUIVO_HISTORICO)
         
+        # Garante retrocompatibilidade se a coluna nova de Origem não existir no arquivo antigo
+        if "Origem/Alteração" not in df_completo.columns:
+            df_completo["Origem/Alteração"] = "Novo Orçamento"
+            
         clientes_existentes = sorted(df_completo["Empresa"].dropna().unique().tolist())
         cliente_filtro = st.multiselect("🔍 Filtrar visualização por Cliente/Empresa:", options=clientes_existentes, placeholder="Exibindo todos os clientes")
         
@@ -370,11 +395,17 @@ elif opcao_menu == "📜 2. Histórico & Preços Atuais":
         if cliente_filtro:
             df_base_filtrada = df_base_filtrada[df_base_filtrada["Empresa"].isin(cliente_filtro)]
 
+        # PONTO 5 CORRIGIDO: Exibição limpa, ordenada e sem códigos ilegíveis de JSON
+        colunas_comerciais = [
+            "Data/Hora", "Origem/Alteração", "Empresa", "Código da Peça", 
+            "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"
+        ]
+        
         if opcao_visao == "⏳ Histórico de Alterações Completo":
-            st.subheader("📋 Registro Cronológico Completo")
-            st.dataframe(df_base_filtrada.iloc[::-1], use_container_width=True)
+            st.subheader("📋 Registro Cronológico Completo (Limpo)")
+            st.dataframe(df_base_filtrada[colunas_comerciais].iloc[::-1], use_container_width=True)
         else:
-            st.subheader("🎯 Tabela de Preços Atuais")
+            st.subheader("🎯 Tabela de Preços Atuais (Última versão de cada código)")
             df_ultimos_precos = df_completo.sort_values("Data/Hora").groupby("Código da Peça").last().reset_index()
             df_ultimos_precos = df_ultimos_precos.sort_values(by="Empresa")
             
@@ -387,7 +418,7 @@ elif opcao_menu == "📜 2. Histórico & Preços Atuais":
             ]], use_container_width=True)
 
 # =============================================================================
-# TELA 3: CONFIGURAÇÕES E RECÁLCULO EM MASSA
+# TELA 3: CONFIGURAÇÕES DE CUSTOS & RECÁLCULO EM MASSA (PONTO 4 CORRIGIDO)
 # =============================================================================
 elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
     st.subheader("⚙️ Painel de Controle de Custos Fixos")
@@ -406,20 +437,28 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
         fs_atual = st.number_input("Fundo Social / Encargos (%)", min_value=0.0, value=st.session_state.impostos["FS"], step=0.5, key="cfg_tax_fs")
         st.session_state.impostos = {"IR": ir_atual, "FS": fs_atual}
 
-    def processar_recalculo(dataframe_base):
+    # PONTO 4 CORRIGIDO: Função interna agora recalcula e GRAVA as alterações no histórico permanentemente
+    def processar_e_salvar_recalculo(dataframe_base):
         linhas_recalculadas = []
+        novas_linhas_historico = []
+        
         for _, row in dataframe_base.iterrows():
             try:
                 roteiro = json.loads(row["Usinagem_JSON"])
                 novo_custo_usinagem = 0.0
                 for op in roteiro:
                     novo_custo_usinagem += (row["Lote"] / op["Peças por Hora"]) * valores_maquinas.get(op["Máquina"], 120.0)
+                
                 c_material = row["Custo Material (R$)"]
                 c_treatment = row["Custo Tratamento (R$)"]
                 custo_fabrica_novo = c_material + novo_custo_usinagem + c_treatment
+                
                 valor_lucro_novo = custo_fabrica_novo / (1 - (row["Margem Lucro (%)"] / 100))
                 total_imp_pct = impostos["IR"] + impostos["FS"]
                 preco_lote_novo = valor_lucro_novo + (valor_lucro_novo * (total_imp_pct / 100))
+                preco_unit_novo = preco_lote_novo / row["Lote"]
+                
+                # Gera a linha visual da tela
                 linhas_recalculadas.append({
                     "Empresa/Cliente": row["Empresa"],
                     "Código da Peça": row["Código da Peça"],
@@ -427,14 +466,34 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                     "Lote": row["Lote"],
                     "Novo Custo Usinagem (R$)": round(novo_custo_usinagem, 2),
                     "NOVO Preço Total Lote (R$)": round(preco_lote_novo, 2),
-                    "NOVO Preço Unitário (R$)": round(preco_lote_novo / row["Lote"], 2)
+                    "NOVO Preço Unitário (R$)": round(preco_unit_novo, 2)
                 })
-            except: pass
+                
+                # Clona o registro e atualiza com as novas informações para salvar permanentemente no arquivo CSV
+                registro_recalculado_completo = row.to_dict()
+                registro_recalculado_completo["Data/Hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+                registro_recalculado_completo["Origem/Alteração"] = "Recálculo de Tarifas" # Carimbo da mudança
+                registro_recalculado_completo["Preço Total Lote (R$)"] = round(preco_lote_novo, 2)
+                registro_recalculado_completo["Preço Unitário (R$)"] = round(preco_unit_novo, 2)
+                novas_linhas_historico.append(registro_recalculado_completo)
+            except: 
+                pass
+                
+        # Gravação em lote das atualizações no arquivo de histórico CSV
+        if novas_linhas_historico:
+            df_novos_recalc = pd.DataFrame(novas_linhas_historico)
+            if os.path.exists(ARQUIVO_HISTORICO):
+                df_completo_atual = pd.read_csv(ARQUIVO_HISTORICO)
+                df_final_salvar = pd.concat([df_completo_atual, df_novos_recalc], ignore_index=True)
+            else:
+                df_final_salvar = df_novos_recalc
+            df_final_salvar.to_csv(ARQUIVO_HISTORICO, index=False)
+            
         return pd.DataFrame(linhas_recalculadas)
 
     st.markdown("---")
-    st.markdown("### 🍒 Recálculo Geral em Massa (Segmentado)")
-    st.write("Selecione abaixo para quais clientes deseja simular o impacto de preço com as novas taxas configuradas acima:")
+    st.markdown("### 🍒 Recálculo Geral em Massa (Com gravação automática)")
+    st.write("Selecione abaixo para quais clientes deseja disparar o recálculo. O sistema irá computar as novas taxas horárias e salvar automaticamente como uma nova revisão histórica.")
     
     if os.path.exists(ARQUIVO_HISTORICO):
         df_recalc_base = pd.read_csv(ARQUIVO_HISTORICO)
@@ -442,19 +501,21 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
         
         clientes_selecionados = st.multiselect("Selecione os Clientes para Recalcular:", options=clientes_para_recalc, placeholder="Deixe vazio para recalcular TODOS os clientes", key="multiselect_recalc_aba3")
         
-        if st.button("🔄 Executar Recálculo de Tarifas", type="primary", key="btn_recalc_aba3"):
+        if st.button("🔄 Executar Recálculo de Tarifas e Salvar", type="primary", key="btn_recalc_aba3"):
+            # Filtra os preços atuais ativos (última versão de cada peça)
             df_ultimos_recalc = df_recalc_base.sort_values("Data/Hora").groupby("Código da Peça").last().reset_index()
             
             if clientes_selecionados:
                 df_ultimos_recalc = df_ultimos_recalc[df_ultimos_recalc["Empresa"].isin(clientes_selecionados)]
                 
-            df_atualizado = processar_recalculo(df_ultimos_recalc)
+            df_atualizado = processar_e_salvar_recalculo(df_ultimos_recalc)
             if not df_atualizado.empty:
-                st.success(f"🚀 Preços simulados e recalculados com sucesso!")
+                st.session_state.mensagem_sucesso = "🚀 Sucesso! Todas as peças da seleção foram recalculadas com as novas taxas e salvas como novas revisões no histórico!"
                 st.dataframe(df_atualizado, use_container_width=True)
                 
                 csv_export = df_atualizado.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Baixar Tabela Recalculada (Excel/CSV)", data=csv_export, file_name="precos_recalculados_usinagem.csv", mime="text/csv", key="btn_dl_csv_aba3")
+                st.rerun()
             else:
                 st.warning("Nenhum roteiro válido encontrado para processar.")
     else:
