@@ -185,7 +185,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True) # Alinhador vertical do botão
         # PONTO 3: Botão posicionado exatamente ao lado do campo do código
         if codigo_sel and codigo_sel != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
-            st.button("📋 Completar dados com roteiro antigo", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
+            st.button("Completar dados", type="secondary", use_container_width=True, on_click=carregar_roteiro_antigo_callback)
 
     # Dados adicionais do produto que aparecem abaixo do cabeçalho de código
     col_dados_p1, col_dados_p2, col_dados_p3, col_dados_p4 = st.columns(4)
