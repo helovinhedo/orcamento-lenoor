@@ -189,10 +189,9 @@ opcao_menu = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.caption("Lenoor S/A v3.5 - Estabilidade Avançada")
 
-# Limpeza inteligente de mensagens e tabelas temporárias ao mudar de tela
 if opcao_menu != st.session_state.menu_anterior:
     st.session_state.mensagem_sucesso = ""
-    st.session_state["df_recalculado_resultado"] = None  # Reseta o recálculo ao navegar
+    st.session_state["df_recalculado_resultado"] = None  
     st.session_state.menu_anterior = opcao_menu
 
 st.title("Sistema Lenoor de Orçamentos")
@@ -365,7 +364,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
     fator_lucro = (1 - (porcentagem_lucro / 100))
     if fator_lucro <= 0: fator_lucro = 0.05
         
-    valor_com_lucro = custo_bruto_total / factor_lucro
+    # CORREÇÃO DO TYPO REALIZADA: factor_lucro alterado para fator_lucro
+    valor_com_lucro = custo_bruto_total / fator_lucro
     lucro_bruto_real = valor_com_lucro - custo_bruto_total
     total_imposto_pct = safe_float(impostos.get("IR")) + safe_float(impostos.get("FS"))
     valor_impostos = valor_com_lucro * (total_imposto_pct / 100)
@@ -488,7 +488,6 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
         fs_atual = st.number_input("Fundo Social / Encargos (%)", min_value=0.0, value=safe_float(st.session_state.impostos.get("FS", 4.0)), step=0.5, key="cfg_tax_fs")
         st.session_state.impostos = {"IR": ir_atual, "FS": fs_atual}
 
-    # CEREJA DO BOLO CORRIGIDA: Função de processamento antivazamento de colunas fantasmas
     def processar_e_salvar_recalculo(dataframe_base):
         linhas_recalculadas = []
         novas_linhas_historico = []
@@ -498,7 +497,7 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
                 raw_row = row.to_dict()
                 row_clean = {}
                 for k, v in raw_row.items():
-                    if k == '_dt_temp': continue  # Evita que a coluna de data vaze para o CSV final
+                    if k == '_dt_temp': continue  
                     if pd.isna(v):
                         if k in ["Lote", "Margem Lucro (%)"]: row_clean[k] = 100 if k == "Lote" else 30
                         elif k in ["Usinagem_JSON", "Tratamento_JSON"]: row_clean[k] = "[]"
@@ -582,7 +581,6 @@ elif opcao_menu == "⚙️ 3. Configurações de Custos e Impostos":
             else:
                 st.session_state["df_recalculado_resultado"] = None
 
-        # CEREJA DO BOLO RESOLVIDA: Renderização persistente e download sem sumir da tela
         if st.session_state["df_recalculado_resultado"] is not None:
             st.dataframe(st.session_state["df_recalculado_resultado"], use_container_width=True)
             csv_export = st.session_state["df_recalculado_resultado"].to_csv(index=False).encode('utf-8')
