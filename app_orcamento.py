@@ -7,7 +7,7 @@ import os
 # Configuração da página profissional
 st.set_page_config(page_title="Sistema União - Orçamentos v2", page_icon="⚙️", layout="wide")
 
-st.title("🛠️ Sistema União de Orçamentos & Recálculo em Massa")
+st.title("🛠️ Sistema Orçamentos Lenoor")
 
 # Nome do arquivo de banco de dados local
 ARQUIVO_HISTORICO = "historico_orcamentos_estruturado.csv"
