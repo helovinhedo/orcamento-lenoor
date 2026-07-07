@@ -5,7 +5,7 @@ import json
 import os
 
 # 1. CONFIGURAÇÕES INICIAIS DA PÁGINA
-st.set_page_config(page_title="Sistema União - Orçamentos v3", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Sistema Lenoor - Orçamentos v3", page_icon="⚙️", layout="wide")
 
 # Nome do arquivo de banco de dados local
 ARQUIVO_HISTORICO = "historico_orcamentos_estruturado.csv"
@@ -42,7 +42,7 @@ if os.path.exists(ARQUIVO_HISTORICO):
 valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
 
-st.title("🛠️ Sistema União de Orçamentos")
+st.title("Sistema Lenoor de Orçamentos")
 
 # 3. CRIAÇÃO DAS ABAS NA TELA (Recálculo movido para a Aba 3 - Ponto 4)
 aba_calculo, aba_historico, aba_config = st.tabs([
