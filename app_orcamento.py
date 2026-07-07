@@ -5,7 +5,7 @@ import json
 import os
 
 # 1. CONFIGURAÇÕES INICIAIS DA PÁGINA
-st.set_page_config(page_title="Sistema União - Orçamentos v2", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Sistema União - Orçamentos v3", page_icon="⚙️", layout="wide")
 
 # Nome do arquivo de banco de dados local
 ARQUIVO_HISTORICO = "historico_orcamentos_estruturado.csv"
@@ -26,8 +26,17 @@ if "valores_maquinas" not in st.session_state:
     }
 if "impostos" not in st.session_state:
     st.session_state.impostos = {"IR": 6.0, "FS": 4.0}
-if "dados_carregados" not in st.session_state:
-    st.session_state.dados_carregados = None
+
+# Carrega listas do histórico para sugestão automática (Pontos 1 e 2)
+lista_empresas = []
+lista_codigos = []
+if os.path.exists(ARQUIVO_HISTORICO):
+    try:
+        df_init = pd.read_csv(ARQUIVO_HISTORICO)
+        lista_empresas = sorted(df_init["Empresa"].dropna().unique().tolist())
+        lista_codigos = sorted(df_init["Código da Peça"].dropna().unique().tolist())
+    except:
+        pass
 
 # Atalhos para as configurações atuais
 valores_maquinas = st.session_state.valores_maquinas
@@ -35,7 +44,7 @@ impostos = st.session_state.impostos
 
 st.title("🛠️ Sistema União de Orçamentos")
 
-# 3. CRIAÇÃO DAS ABAS NA TELA
+# 3. CRIAÇÃO DAS ABAS NA TELA (Recálculo movido para a Aba 3 - Ponto 4)
 aba_calculo, aba_historico, aba_config = st.tabs([
     "📊 1. Novo Orçamento", 
     "📜 2. Histórico & Preços Atuais", 
@@ -46,32 +55,48 @@ aba_calculo, aba_historico, aba_config = st.tabs([
 # ABA 1: NOVO ORÇAMENTO
 # =============================================================================
 with aba_calculo:
-    st.subheader("👤 Dados do Cliente")
-    col_cli1, col_cli2 = st.columns(2)
-    with col_cli1:
-        empresa = st.text_input("Empresa/Cliente", value="", placeholder="Ex: TS", key="txt_empresa")
-    with col_cli2:
-        comprador = st.text_input("Comprador Responsible", value="", placeholder="Ex: Guilherme", key="txt_comprador")
-
-    st.markdown("---")
-    
     st.subheader("📦 Dados do Produto")
     col_prod1, col_prod2, col_prod3 = st.columns(3)
     
     with col_prod1:
-        codigo_peca = st.text_input("Código da Peça", value="", placeholder="Ex: TS-8-030-XXXX", key="txt_codigo")
-        
-        if codigo_peca and os.path.exists(ARQUIVO_HISTORICO):
-            df_hist_busca = pd.read_csv(ARQUIVO_HISTORICO)
-            df_filtrado = df_hist_busca[df_hist_busca["Código da Peça"] == codigo_peca]
-            if not df_filtrado.empty:
-                st.info(f"🔍 Cotação anterior encontrada para o código {codigo_peca}!")
-                if st.button("🔄 Carregar dados da última versão", key="btn_carregar_hist"):
-                    st.session_state.dados_carregados = df_filtrado.iloc[-1].to_dict()
-                    st.rerun()
+        # Ponto 2: Sugere o código ao começar a digitar através do selectbox pesquisável
+        codigo_sel = st.selectbox("Código da Peça", [""] + lista_codigos + ["➕ Novo Código..."], key="sel_codigo_peca")
+        if codigo_sel == "➕ Novo Código...":
+            codigo_peca = st.text_input("Digite o Novo Código", placeholder="Ex: TS-8-030-XXXX")
+        else:
+            codigo_peca = codigo_sel
 
-    hist = st.session_state.dados_carregados if st.session_state.dados_carregados else {}
+    # Ponto 3: Se houver histórico do código, puxa TUDO automaticamente para servir de padrão nos campos abaixo
+    hist = {}
+    if codigo_sel and codigo_sel != "➕ Novo Código..." and os.path.exists(ARQUIVO_HISTORICO):
+        try:
+            df_hist_busca = pd.read_csv(ARQUIVO_HISTORICO)
+            df_filtrado = df_hist_busca[df_hist_busca["Código da Peça"] == codigo_sel]
+            if not df_filtrado.empty:
+                hist = df_filtrado.iloc[-1].to_dict()
+                st.success(f"⚡ Dados históricos do código '{codigo_sel}' carregados em todos os campos!")
+        except:
+            pass
+
+    st.markdown("---")
+    st.subheader("👤 Dados do Cliente")
+    col_cli1, col_cli2 = st.columns(2)
     
+    with col_cli1:
+        # Ponto 1: Sugere o nome do cliente baseado no histórico + preenche automático se o código já existir
+        default_empresa = hist.get("Empresa", "")
+        idx_empresa = lista_empresas.index(default_empresa) + 1 if default_empresa in lista_empresas else 0
+        
+        empresa_sel = st.selectbox("Empresa/Cliente", [""] + lista_empresas + ["➕ Novo Cliente..."], index=idx_empresa, key="sel_empresa_aba1")
+        if empresa_sel == "➕ Novo Cliente...":
+            empresa = st.text_input("Digite o nome do Novo Cliente", placeholder="Ex: TS")
+        else:
+            empresa = empresa_sel
+            
+    with col_cli2:
+        comprador = st.text_input("Comprador Responsável", value=hist.get("Comprador", ""), placeholder="Ex: Guilherme", key="txt_comprador")
+
+    # Continuação dos dados do produto com preenchimento total (Ponto 3)
     with col_prod2:
         nome_peca = st.text_input("Nome da Peça", value=hist.get("Nome da Peça", ""), key="txt_nome_peca")
     with col_prod3:
@@ -81,14 +106,14 @@ with aba_calculo:
     with col_prod4:
         comprimento = st.number_input("Comprimento da Peça (mm)", min_value=0.0, value=float(hist.get("Comprimento (mm)", 0.0)), key="num_comprimento")
     with col_prod5:
-        margem_corte = st.number_input("Margem de Corte/Perda por peça (mm)", min_value=0.0, value=5.0, key="num_margem_corte")
+        margem_corte = st.number_input("Margem de Corte/Perda por peça (mm)", min_value=0.0, value=float(hist.get("Margem Corte (mm)", 5.0)), key="num_margem_corte")
 
     st.markdown("---")
 
     st.subheader("🧱 Definição da Matéria-Prima")
-    tipo_mp = st.selectbox("Como a Matéria-Prima será contabilizada?", 
-                           ["Por Peso (Barra Maciça/Sextavada)", "Por Peso (Tubo/Bucha)", "Por Metro Linear", "Por Peça Pronta", "Fornecido pelo Cliente (Mão de Obra Pura)"],
-                           key="sel_tipo_mp")
+    opcoes_mp = ["Por Peso (Barra Maciça/Sextavada)", "Por Peso (Tubo/Bucha)", "Por Metro Linear", "Por Peça Pronta", "Fornecido pelo Cliente (Mão de Obra Pura)"]
+    idx_mp = opcoes_mp.index(hist["Tipo MP"]) if "Tipo MP" in hist and hist["Tipo MP"] in opcoes_mp else 0
+    tipo_mp = st.selectbox("Como a Matéria-Prima será contabilizada?", opcoes_mp, index=idx_mp, key="sel_tipo_mp")
     
     custo_total_material = 0.0
     total_quilos = 0.0
@@ -96,21 +121,23 @@ with aba_calculo:
 
     col_mat1, col_mat2, col_mat3 = st.columns(3)
     with col_mat1:
-        preco_unitario_mp = st.number_input("Preço Atual da MP (R$ por Kg, Metro ou Peça)", min_value=0.0, value=float(hist.get("Preço MP Unitário", 0.0)) if hist else 0.0, step=1.0, key="num_preco_mp")
+        preco_unitario_mp = st.number_input("Preço Atual da MP (R$ por Kg, Metro ou Peça)", min_value=0.0, value=float(hist.get("Preço MP Unitário", 0.0)), step=1.0, key="num_preco_mp")
 
     if "Por Peso" in tipo_mp:
         with col_mat2:
-            material_sel = st.selectbox("Selecione a Liga (Constante)", list(DADOS_MATERIAIS.keys()), key="sel_liga")
+            opcoes_liga = list(DADOS_MATERIAIS.keys())
+            idx_liga = opcoes_liga.index(hist["Liga"]) if "Liga" in hist and hist["Liga"] in opcoes_liga else 0
+            material_sel = st.selectbox("Selecione a Liga (Constante)", opcoes_liga, index=idx_liga, key="sel_liga")
             constante = DADOS_MATERIAIS[material_sel]
         
         if tipo_mp == "Por Peso (Barra Maciça/Sextavada)":
             with col_mat3:
-                diametro = st.number_input("Diâmetro da Barra (mm)", min_value=0.0, value=15.0, key="num_diam_barra")
+                diametro = st.number_input("Diâmetro da Barra (mm)", min_value=0.0, value=float(hist.get("Diâmetro (mm)", 15.0)), key="num_diam_barra")
             peso_por_metro = (diametro ** 2 * constante) / 100
         else:
             with col_mat3:
-                di_ext = st.number_input("Diâmetro Externo (mm)", min_value=0.0, value=20.0, key="num_di_ext")
-                di_int = st.number_input("Diâmetro Interno/Furo (mm)", min_value=0.0, value=10.0, key="num_di_int")
+                di_ext = st.number_input("Diâmetro Externo (mm)", min_value=0.0, value=float(hist.get("Diâmetro Externo (mm)", 20.0)), key="num_di_ext")
+                di_int = st.number_input("Diâmetro Interno/Furo (mm)", min_value=0.0, value=float(hist.get("Diâmetro Interno (mm)", 10.0)), key="num_di_int")
             peso_por_metro = ((di_ext ** 2) - (di_int ** 2)) * constante / 100
 
         total_metros = ((comprimento + margem_corte) * lote) / 1000
@@ -123,13 +150,13 @@ with aba_calculo:
         custo_total_material = total_metros * preco_unitario_mp
         detalhes_material = f"{total_metros:.2f} m"
         with col_mat2:
-            total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.1, value=10.0, key="num_peso_metro")
+            total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.1, value=float(hist.get("Total Kg Lote", 10.0)), key="num_peso_metro")
 
     elif tipo_mp == "Por Peça Pronta" or "Fornecido" in tipo_mp:
         custo_total_material = 0.0 if "Fornecido" in tipo_mp else (lote * preco_unitario_mp)
         detalhes_material = "Fornecido pelo Cliente" if "Fornecido" in tipo_mp else f"{lote} Peças base"
         with col_mat2:
-            total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.1, value=10.0, key="num_peso_peca")
+            total_quilos = st.number_input("Peso total do lote (kg) [Para cálculo do Tratamento]", min_value=0.1, value=float(hist.get("Total Kg Lote", 10.0)), key="num_peso_peca")
 
     st.metric("Custo Total da Matéria-Prima", f"R$ {custo_total_material:.2f}", help=f"Peso total considerado: {total_quilos:.2f} kg")
     st.markdown("---")
@@ -183,9 +210,10 @@ with aba_calculo:
     st.markdown("---")
 
     st.subheader("📈 Margem de Lucro e Fechamento")
-    porcentagem_lucro = st.slider("Selecione a Margem de Lucro desejada (%)", min_value=15, max_value=95, value=30, step=5, key="slider_lucro_aba1")
+    default_lucro = int(hist.get("Margem Lucro (%)", 30))
+    porcentagem_lucro = st.slider("Selecione a Margem de Lucro desejada (%)", min_value=15, max_value=95, value=default_lucro, step=5, key="slider_lucro_aba1")
 
-    # Cálculos Matemáticos Finais (Regra Tradicional)
+    # Cálculos Finais
     custo_bruto_total = custo_total_material + custo_total_usinagem + custo_total_tratamentos
     valor_com_lucro = custo_bruto_total / (1 - (porcentagem_lucro / 100))
     lucro_bruto_real = valor_com_lucro - custo_bruto_total
@@ -211,14 +239,19 @@ with aba_calculo:
             "Comprador": comprador if comprador else "N/A",
             "Lote": lote,
             "Comprimento (mm)": comprimento,
+            "Margem Corte (mm)": margem_corte,
             "Tipo MP": tipo_mp,
             "Preço MP Unitário": preco_unitario_mp,
+            "Liga": material_sel if "Por Peso" in tipo_mp else "N/A",
+            "Diâmetro (mm)": diametro if tipo_mp == "Por Peso (Barra Maciça/Sextavada)" else 0.0,
+            "Diâmetro Externo (mm)": di_ext if tipo_mp == "Por Peso (Tubo/Bucha)" else 0.0,
+            "Diâmetro Interno (mm)": di_int if tipo_mp == "Por Peso (Tubo/Bucha)" else 0.0,
             "Total Kg Lote": round(total_quilos, 3),
             "Custo Material (R$)": round(custo_total_material, 2),
             "Custo Tratamento (R$)": round(custo_total_tratamentos, 2),
             "Margem Lucro (%)": porcentagem_lucro,
-            "Preço Total Lote (R$)": round(preco_venda_lote, 2),      # ADICIONADO: Agora salva o preço histórico fixo
-            "Preço Unitário (R$)": round(preco_unitario_final, 2),    # ADICIONADO: Agora salva o preço unitário histórico fixo
+            "Preço Total Lote (R$)": round(preco_venda_lote, 2),
+            "Preço Unitário (R$)": round(preco_unitario_final, 2),
             "Usinagem_JSON": usinagem_json_str
         }
         df_novo = pd.DataFrame([novo_registro])
@@ -229,10 +262,10 @@ with aba_calculo:
             df_hist = df_novo
         df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
         st.success("✅ Cotação salva com sucesso!")
-        st.session_state.dados_carregados = None
+        st.rerun()
 
 # =============================================================================
-# ABA 2: HISTÓRICO & RECÁLCULO EM MASSA
+# ABA 2: HISTÓRICO & PREÇOS ATUAIS
 # =============================================================================
 with aba_historico:
     st.subheader("📜 Histórico e Banco de Preços")
@@ -240,84 +273,37 @@ with aba_historico:
         st.info("Nenhum orçamento gerado ainda no sistema.")
     else:
         df_completo = pd.read_csv(ARQUIVO_HISTORICO)
-        opcao_visao = st.radio("Selecione a visualização dos dados:", ["🎯 Preços Atuais (Última Versão por Peça/Empresa)", "⏳ Histórico de Alterações Completo"], key="rad_visao_aba2")
         
-        # Função para processar o recálculo com taxas novas
-        def processar_recalculo(dataframe_base):
-            linhas_recalculadas = []
-            for _, row in dataframe_base.iterrows():
-                try:
-                    roteiro = json.loads(row["Usinagem_JSON"])
-                    novo_custo_usinagem = 0.0
-                    for op in roteiro:
-                        novo_custo_usinagem += (row["Lote"] / op["Peças por Hora"]) * valores_maquinas.get(op["Máquina"], 120.0)
-                    c_material = row["Custo Material (R$)"]
-                    c_tratamento = row["Custo Tratamento (R$)"]
-                    custo_fabrica_novo = c_material + novo_custo_usinagem + c_tratamento
-                    valor_lucro_novo = custo_fabrica_novo / (1 - (row["Margem Lucro (%)"] / 100))
-                    total_imp_pct = impostos["IR"] + impostos["FS"]
-                    impostos_novos = valor_lucro_novo * (total_imp_pct / 100)
-                    preco_lote_novo = valor_lucro_novo + impostos_novos
-                    linhas_recalculadas.append({
-                        "Empresa/Cliente": row["Empresa"],
-                        "Código da Peça": row["Código da Peça"],
-                        "Nome da Peça": row["Nome da Peça"],
-                        "Lote": row["Lote"],
-                        "Custo Mat. Prima (R$)": c_material,
-                        "Novo Custo Usinagem (R$)": round(novo_custo_usinagem, 2),
-                        "Custo Tratamento (R$)": c_tratamento,
-                        "NOVO Preço Total Lote (R$)": round(preco_lote_novo, 2),
-                        "NOVO Preço Unitário (R$)": round(preco_lote_novo / row["Lote"], 2)
-                    })
-                except: pass
-            return pd.DataFrame(linhas_recalculadas)
-
-        # SEURANÇA RETROATIVA: Se colunas de preço final não existirem em testes antigos, calcula agora na memória para mostrar
-        if "Preço Total Lote (R$)" not in df_completo.columns:
-            df_completo["Preço Total Lote (R$)"] = None
-        if "Preço Unitário (R$)" not in df_completo.columns:
-            df_completo["Preço Unitário (R$)"] = None
-
-        for idx, row in df_completo.iterrows():
-            if pd.isna(row["Preço Total Lote (R$)"]) or pd.isna(row["Preço Unitário (R$)"]):
-                try:
-                    roteiro = json.loads(row["Usinagem_JSON"])
-                    custo_u = sum([(row["Lote"] / op["Peças por Hora"]) * valores_maquinas.get(op["Máquina"], 120.0) for op in roteiro])
-                    custo_f = row["Custo Material (R$)"] + custo_u + row["Custo Tratamento (R$)"]
-                    v_luc = custo_f / (1 - (row["Margem Lucro (%)"] / 100))
-                    t_impost = v_luc * ((impostos["IR"] + impostos["FS"]) / 100)
-                    df_completo.at[idx, "Preço Total Lote (R$)"] = round(v_luc + t_impost, 2)
-                    df_completo.at[idx, "Preço Unitário (R$)"] = round((v_luc + t_impost) / row["Lote"], 2)
-                except: pass
+        # Ponto 5: Filtro por cliente adicionado no topo da aba de consulta
+        clientes_existentes = sorted(df_completo["Empresa"].dropna().unique().tolist())
+        cliente_filtro = st.multiselect("🔍 Filtrar visualização por Cliente/Empresa:", options=clientes_existentes, placeholder="Exibindo todos os clientes")
+        
+        opcao_visao = st.radio("Selecione a visualização dos dados:", ["🎯 Preços Atuais (Última Versão por Peça)", "⏳ Histórico de Alterações Completo"], key="rad_visao_aba2")
+        
+        # Filtra o dataframe com base na seleção do usuário (Ponto 5)
+        df_base_filtrada = df_completo.copy()
+        if cliente_filtro:
+            df_base_filtrada = df_base_filtrada[df_base_filtrada["Empresa"].isin(cliente_filtro)]
 
         if opcao_visao == "⏳ Histórico de Alterações Completo":
             st.subheader("📋 Registro Cronológico Completo")
-            st.dataframe(df_completo.iloc[::-1], use_container_width=True)
+            st.dataframe(df_base_filtrada.iloc[::-1], use_container_width=True)
         else:
-            st.subheader("🎯 Tabela de Preços Atuais (Organizado por Empresa)")
-            
-            # Agrupa para pegar o registro mais recente de cada código de peça
+            st.subheader("🎯 Tabela de Preços Atuais")
+            # Agrupa para pegar o preço mais recente de cada código de peça
             df_ultimos_precos = df_completo.sort_values("Data/Hora").groupby("Código da Peça").last().reset_index()
             df_ultimos_precos = df_ultimos_precos.sort_values(by="Empresa")
             
-            # CORREÇÃO AQUI: Agora a tabela foca 100% no preço de venda que interessa ao comercial!
+            if cliente_filtro:
+                df_ultimos_precos = df_ultimos_precos[df_ultimos_precos["Empresa"].isin(cliente_filtro)]
+                
             st.dataframe(df_ultimos_precos[[
                 "Empresa", "Código da Peça", "Nome da Peça", "Lote", 
                 "Preço Unitário (R$)", "Preço Total Lote (R$)"
             ]], use_container_width=True)
-            
-            st.markdown("### 🍒 Recálculo Geral em Massa")
-            st.write("Clique no botão abaixo para aplicar as novas taxas de máquinas/impostos da Aba 3 em todos os clientes cadastrados simultaneamente:")
-            if st.button("🔄 Recalcular Todos os Preços Atuais", type="primary", key="btn_recalc_aba2"):
-                df_atualizado = processar_recalculo(df_ultimos_precos)
-                if not df_atualizado.empty:
-                    st.success("🚀 Preços recalculados com sucesso com as taxas vigentes!")
-                    st.dataframe(df_atualizado, use_container_width=True)
-                    csv_export = df_atualizado.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Baixar Tabela Atualizada (Excel/CSV)", data=csv_export, file_name="precos_atualizados_usinagem.csv", mime="text/csv", key="btn_dl_csv")
 
 # =============================================================================
-# ABA 3: CONFIGURAÇÕES DE CUSTOS E IMPOSTOS
+# ABA 3: CONFIGURAÇÕES DE CUSTOS & RECÁLCULO EM MASSA (Ponto 4)
 # =============================================================================
 with aba_config:
     st.subheader("⚙️ Painel de Controle de Custos Fixos")
@@ -335,4 +321,59 @@ with aba_config:
         ir_atual = st.number_input("Imposto de Renda / Simples Base (%)", min_value=0.0, value=st.session_state.impostos["IR"], step=0.5, key="cfg_tax_ir")
         fs_atual = st.number_input("Fundo Social / Encargos (%)", min_value=0.0, value=st.session_state.impostos["FS"], step=0.5, key="cfg_tax_fs")
         st.session_state.impostos = {"IR": ir_atual, "FS": fs_atual}
-        st.caption("ℹ️ Mudanças aqui afetam automaticamente novos orçamentos e a ferramenta de recálculo em massa.")
+
+    # Ponto 4: Função interna que processa o recálculo em massa
+    def processar_recalculo(dataframe_base):
+        linhas_recalculadas = []
+        for _, row in dataframe_base.iterrows():
+            try:
+                roteiro = json.loads(row["Usinagem_JSON"])
+                novo_custo_usinagem = 0.0
+                for op in roteiro:
+                    novo_custo_usinagem += (row["Lote"] / op["Peças por Hora"]) * valores_maquinas.get(op["Máquina"], 120.0)
+                c_material = row["Custo Material (R$)"]
+                c_tratamento = row["Custo Tratamento (R$)"]
+                custo_fabrica_novo = c_material + novo_custo_usinagem + c_tratamento
+                valor_lucro_novo = custo_fabrica_novo / (1 - (row["Margem Lucro (%)"] / 100))
+                total_imp_pct = impostos["IR"] + impostos["FS"]
+                preco_lote_novo = valor_lucro_novo + (valor_lucro_novo * (total_imp_pct / 100))
+                linhas_recalculadas.append({
+                    "Empresa/Cliente": row["Empresa"],
+                    "Código da Peça": row["Código da Peça"],
+                    "Nome da Peça": row["Nome da Peça"],
+                    "Lote": row["Lote"],
+                    "Novo Custo Usinagem (R$)": round(novo_custo_usinagem, 2),
+                    "NOVO Preço Total Lote (R$)": round(preco_lote_novo, 2),
+                    "NOVO Preço Unitário (R$)": round(preco_lote_novo / row["Lote"], 2)
+                })
+            except: pass
+        return pd.DataFrame(linhas_recalculadas)
+
+    st.markdown("---")
+    st.markdown("### 🍒 Recálculo Geral em Massa (Segmentado)")
+    st.write("Mudou o preço das horas ou impostos acima? Selecione quais clientes deseja recalcular:")
+    
+    if os.path.exists(ARQUIVO_HISTORICO):
+        df_recalc_base = pd.read_csv(ARQUIVO_HISTORICO)
+        clientes_para_recalc = sorted(df_recalc_base["Empresa"].dropna().unique().tolist())
+        
+        # Ponto 4: Escolher especificamente para quais clientes quer rodar o recálculo
+        clientes_selecionados = st.multiselect("Selecione os Clientes para Recalcular:", options=clientes_para_recalc, placeholder="Deixe em branco para RECALCULAR TODOS OS CLIENTES")
+        
+        if st.button("🔄 Executar Recálculo de Tarifas", type="primary", key="btn_recalc_aba3"):
+            df_ultimos_recalc = df_recalc_base.sort_values("Data/Hora").groupby("Código da Peça").last().reset_index()
+            
+            if clientes_selecionados:
+                df_ultimos_recalc = df_ultimos_recalc[df_ultimos_recalc["Empresa"].isin(clientes_selecionados)]
+                
+            df_atualizado = processar_recalculo(df_ultimos_recalc)
+            if not df_atualizado.empty:
+                st.success(f"🚀 Preços recalculados com sucesso para a seleção!")
+                st.dataframe(df_atualizado, use_container_width=True)
+                
+                csv_export = df_atualizado.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Baixar Tabela Recalculada (Excel/CSV)", data=csv_export, file_name="precos_recalculados_usinagem.csv", mime="text/csv", key="btn_dl_csv_aba3")
+            else:
+                st.warning("Nenhum dado válido encontrado para os critérios selecionados.")
+    else:
+        st.info("Nenhum histórico disponível para recalcular.")
