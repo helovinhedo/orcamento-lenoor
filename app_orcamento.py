@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from docx import Document
 import json
 import os
 import io
@@ -180,12 +181,12 @@ materiais = st.session_state.materiais
 # 🧭 3. NAVEGAÇÃO LATERAL E TÍTULO
 # =============================================================================
 st.sidebar.title("🧭 Menu Lenoor")
-opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Matéria-Prima", "⚙️ 4. Custos Fixos & BD", "🛒 5. Cotação Final"]
+opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Matéria-Prima", "⚙️ 4. Custos Fixos & BD", "🛒 5. Cotação Final", "📁 6. Histórico de Cotações"]
 opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
 # A Cereja do Bolo: Versão no Menu Lateral
 st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor v4.5 - Vendas e Analytics")
+st.sidebar.caption("Lenoor v4.6 - Vendas e Analytics")
 
 # Limpa mensagens ao mudar de tela
 if opcao_menu != st.session_state.menu_anterior:
@@ -787,7 +788,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
         if codigo_del and st.button(f"Deletar todos os registros de {codigo_del}", type="primary"):
             df_init[df_init["Código da Peça"] != codigo_del].to_csv(ARQUIVO_HISTORICO, index=False)
             st.rerun()
-
+            
 # =============================================================================
 # 🛒 TELA 5: COTAÇÃO FINAL (VENDAS)
 # =============================================================================
@@ -798,7 +799,6 @@ elif opcao_menu == "🛒 5. Cotação Final":
     if df_init.empty:
         st.info("Nenhum orçamento disponível no banco de dados da engenharia.")
     else:
-        # --- PASSO 1: O CARRINHO ---
         st.markdown("### Passo 1: Seleção do Cliente e Peças")
         cliente_cot = st.selectbox("Selecione o Cliente para cotar:", [""] + lista_empresas)
 
@@ -810,7 +810,6 @@ elif opcao_menu == "🛒 5. Cotação Final":
             pecas_selecionadas = st.multiselect("Adicione as peças ao carrinho:", options=df_ultimos["Código da Peça"].tolist())
 
             if pecas_selecionadas:
-                # --- PASSO 2: MESA DE NEGOCIAÇÃO ---
                 st.markdown("---")
                 st.markdown("### Passo 2: Mesa de Negociação")
                 st.info("💡 Edite as colunas 'Novo Lote' e 'Margem Desejada (%)' para ajustar o preço da proposta.")
@@ -847,8 +846,7 @@ elif opcao_menu == "🛒 5. Cotação Final":
 
                 df_base_cotacao = pd.DataFrame(dados_carrinho)
                 df_editado = st.data_editor(
-                    df_base_cotacao,
-                    hide_index=True, use_container_width=True,
+                    df_base_cotacao, hide_index=True, use_container_width=True,
                     column_config={
                         "Código da Peça": st.column_config.TextColumn(disabled=True),
                         "Nome": st.column_config.TextColumn(disabled=True),
@@ -859,7 +857,6 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     }
                 )
 
-                # --- Motor de Vendas (Recálculo On the Fly) ---
                 total_imposto_pct = safe_float(st.session_state.impostos.get("IR")) + safe_float(st.session_state.impostos.get("FS"))
                 valor_total_cotacao, imposto_total_cotacao, custo_total_cotacao, peso_total_cotacao = 0.0, 0.0, 0.0, 0.0
                 resultados_visuais = []
@@ -868,14 +865,12 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     lote = safe_int(row["Novo Lote"])
                     margem = safe_float(row["Margem Desejada (%)"])
                     custo_unit = safe_float(row["Custo Base (R$)"])
-                    
                     peso_total_cotacao += safe_float(row["Peso Unit. (Kg)"]) * lote
 
                     custo_bruto_lote = custo_unit * lote
                     fator_lucro = max(0.01, (1 - (margem / 100)))
                     valor_sem_imposto = custo_bruto_lote / fator_lucro
                     imposto_reais = valor_sem_imposto * (total_imposto_pct / 100)
-                    
                     preco_lote_final = valor_sem_imposto + imposto_reais
                     preco_unit_final = preco_lote_final / lote
 
@@ -884,28 +879,20 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     custo_total_cotacao += custo_bruto_lote
 
                     resultados_visuais.append({
-                        "Código": row["Código da Peça"], 
-                        "Nome": row["Nome"], 
-                        "Lote": lote,
-                        "Preço de Venda Unitário": round(preco_unit_final, 2), 
-                        "Total Faturado": round(preco_lote_final, 2)
+                        "Código": row["Código da Peça"], "Nome": row["Nome"], "Lote": lote,
+                        "Preço de Venda Unitário": round(preco_unit_final, 2), "Total Faturado": round(preco_lote_final, 2)
                     })
 
-                # --- PASSO 3: A PROPOSTA ---
                 st.markdown("---")
                 st.markdown("### Passo 3: A Proposta (Visão do Cliente)")
                 df_resumo = pd.DataFrame(resultados_visuais)
-                
-                # Formatar a tabela visualmente (sem estragar os números para o Excel)
                 df_resumo_formatado = df_resumo.copy()
                 df_resumo_formatado["Preço de Venda Unitário"] = df_resumo_formatado["Preço de Venda Unitário"].apply(lambda x: f"R$ {x:.2f}")
                 df_resumo_formatado["Total Faturado"] = df_resumo_formatado["Total Faturado"].apply(lambda x: f"R$ {x:.2f}")
-                
                 st.dataframe(df_resumo_formatado, hide_index=True, use_container_width=True)
                 
-                # --- PASSO 4: RAIO-X DA NEGOCIAÇÃO ---
                 st.markdown("---")
-                st.markdown("### 📊 Passo 4: Raio-X da Negociação (Visão Interna)")
+                st.markdown("### 📊 Passo 4: Raio-X da Negociação")
                 
                 lucro_bruto_reais = valor_total_cotacao - custo_total_cotacao
                 lucro_real_reais = lucro_bruto_reais - imposto_total_cotacao
@@ -913,80 +900,114 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 margem_real_pct = (lucro_real_reais / valor_total_cotacao * 100) if valor_total_cotacao > 0 else 0
                 
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("1. Faturamento Total", f"R$ {valor_total_cotacao:.2f}")
+                c1.metric("1. Faturamento", f"R$ {valor_total_cotacao:.2f}")
                 c2.metric("2. Custo de Fábrica", f"R$ {custo_total_cotacao:.2f}")
-                c3.metric(f"3. Guias de Imposto ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
-                c4.metric("4. Lucro Livre (Dinheiro no Bolso)", f"R$ {lucro_real_reais:.2f}")
+                c3.metric(f"3. Impostos ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
+                c4.metric("4. Lucro Real", f"R$ {lucro_real_reais:.2f}")
 
-                st.write("") # Espaçamento
-                c5, c6, c7, c8 = st.columns(4)
-                c5.metric("5. Margem Bruta (%)", f"{margem_bruta_pct:.1f} %")
-                c6.metric("6. Margem Líquida Real (%)", f"{margem_real_pct:.1f} %")
-                c7.metric("7. Peso Total Estimado", f"{peso_total_cotacao:.2f} kg")
-                c8.write("")
-                
                 st.markdown("---")
+                st.markdown("### Passo 5: Salvar e Exportar")
                 
-                # --- PASSO 5: AÇÕES FINAIS ---
-                col_btn1, col_btn2 = st.columns(2)
+                # --- GERAÇÃO DO ID ÚNICO E WORD ---
+                ARQUIVO_COTACOES = "historico_cotacoes_vendas.csv"
+                agora = datetime.now()
+                ano_atual = agora.year
+                data_str = agora.strftime("%d/%m/%Y")
                 
-                with col_btn1:
-                    if st.button("💾 Salvar Cotação no Histórico", type="primary"):
-                        ARQUIVO_COTACOES = "historico_cotacoes_vendas.csv"
-                        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                novo_id = f"COT-{ano_atual}-001"
+                if os.path.exists(ARQUIVO_COTACOES):
+                    try:
+                        df_existente = pd.read_csv(ARQUIVO_COTACOES)
+                        ids_ano = df_existente[df_existente['ID Cotação'].astype(str).str.contains(f"COT-{ano_atual}", na=False)]
+                        if not ids_ano.empty:
+                            max_num = ids_ano['ID Cotação'].str.split('-').str[-1].astype(int).max()
+                            novo_id = f"COT-{ano_atual}-{max_num + 1:03d}"
+                    except: pass
+
+                def gerar_doc_word(id_cot, cliente, df_itens, total, peso):
+                    doc = Document()
+                    doc.add_heading('LENOOR S/A - Proposta Comercial', 0)
+                    doc.add_paragraph(f"Número da Proposta: {id_cot}\nData: {data_str}\n\nÀ Empresa: {cliente}\nRef.: Orçamento de fabricação/usinagem de peças.")
+                    doc.add_paragraph("Olá! Agradecemos a oportunidade. Conforme solicitado, submetemos abaixo nossa melhor proposta comercial:")
+                    
+                    table = doc.add_table(rows=1, cols=5)
+                    table.style = 'Table Grid'
+                    hdr_cells = table.rows[0].cells
+                    hdr_cells[0].text, hdr_cells[1].text, hdr_cells[2].text, hdr_cells[3].text, hdr_cells[4].text = 'Código', 'Descrição', 'Qtd', 'Preço Unit.', 'Total'
+                    
+                    for _, row in df_itens.iterrows():
+                        row_cells = table.add_row().cells
+                        row_cells[0].text, row_cells[1].text, row_cells[2].text = str(row['Código']), str(row['Nome']), str(row['Lote'])
+                        row_cells[3].text, row_cells[4].text = f"R$ {row['Preço de Venda Unitário']:.2f}", f"R$ {row['Total Faturado']:.2f}"
                         
-                        df_salvar_cot = df_resumo.copy()
-                        df_salvar_cot["Data/Hora"] = agora
-                        df_salvar_cot["Cliente"] = cliente_cot
-                        df_salvar_cot["Faturamento Total Cotação"] = valor_total_cotacao
-                        df_salvar_cot["Lucro Real (%)"] = margem_real_pct
-                        
-                        if os.path.exists(ARQUIVO_COTACOES):
-                            try:
-                                df_cot_antigo = pd.read_csv(ARQUIVO_COTACOES)
-                                df_cot_final = pd.concat([df_cot_antigo, df_salvar_cot], ignore_index=True)
-                            except:
-                                df_cot_final = df_salvar_cot
-                        else:
-                            df_cot_final = df_salvar_cot
-                            
-                        df_cot_final.to_csv(ARQUIVO_COTACOES, index=False)
-                        st.success("✅ Cotação salva com sucesso no banco de dados!")
-                
-                with col_btn2:
-                    # Geração mágica do arquivo Excel na memória
+                    doc.add_paragraph(f"\n💰 Valor Total da Proposta: R$ {total:.2f}")
+                    doc.add_paragraph(f"📦 Peso Estimado da Carga: {peso:.2f} kg\n")
+                    doc.add_heading('Condições Comerciais', level=2)
+                    doc.add_paragraph("• Validade da Proposta: 15 dias a partir desta data.\n• Condição de Pagamento: A combinar.\n• Prazo de Entrega: _____ dias úteis após aprovação.\n• Frete: FOB (Por conta do cliente) / CIF (Por nossa conta).")
+                    doc.add_paragraph("\nAtenciosamente,\nDepartamento Comercial - Lenoor S/A")
+                    
                     buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                        df_resumo.to_excel(writer, sheet_name='Proposta Comercial', index=False)
-                    
-                    st.download_button(
-                        label="📥 Exportar Proposta para Excel (.xlsx)",
-                        data=buffer.getvalue(),
-                        file_name=f"Cotacao_{cliente_cot}_{datetime.now().strftime('%d%m%Y')}.xlsx",
-                        mime="application/vnd.ms-excel"
-                    )
+                    doc.save(buffer)
+                    buffer.seek(0)
+                    return buffer
+
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if st.button(f"💾 Salvar Proposta ({novo_id})", type="primary", use_container_width=True):
+                        df_salvar_cot = df_resumo.copy()
+                        df_salvar_cot.insert(0, "ID Cotação", novo_id)
+                        df_salvar_cot.insert(1, "Data", data_str)
+                        df_salvar_cot.insert(2, "Cliente", cliente_cot)
+                        df_salvar_cot["Valor Total Proposta"] = valor_total_cotacao
+                        
+                        df_final = pd.concat([pd.read_csv(ARQUIVO_COTACOES), df_salvar_cot], ignore_index=True) if os.path.exists(ARQUIVO_COTACOES) else df_salvar_cot
+                        df_final.to_csv(ARQUIVO_COTACOES, index=False)
+                        st.success(f"✅ {novo_id} salva no sistema!")
+                        
+                with col_b2:
+                    arquivo_word = gerar_doc_word(novo_id, cliente_cot, df_resumo, valor_total_cotacao, peso_total_cotacao)
+                    st.download_button(label="📄 Baixar Proposta Padrão (.docx)", data=arquivo_word, file_name=f"{novo_id}_{cliente_cot}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+
 # =============================================================================
-# 📂 CONSULTA DE COTAÇÕES SALVAS (FICA NO FINAL DA TELA 5)
+# 📁 TELA 6: HISTÓRICO DE COTAÇÕES (CRM)
 # =============================================================================
-st.markdown("---")
-with st.expander("📂 Consultar Histórico de Cotações Salvas"):
+elif opcao_menu == "📁 6. Histórico de Cotações":
+    st.subheader("📁 Central de Propostas Comerciais")
     ARQUIVO_COTACOES = "historico_cotacoes_vendas.csv"
+    
     if not os.path.exists(ARQUIVO_COTACOES):
-        st.info("Nenhuma cotação foi salva no sistema ainda.")
+        st.info("Nenhuma cotação salva no sistema.")
     else:
-        try:
-            df_historico_cot = pd.read_csv(ARQUIVO_COTACOES)
+        df_historico = pd.read_csv(ARQUIVO_COTACOES)
+        
+        st.markdown("#### 🔍 Filtros de Busca")
+        c_filt1, c_filt2 = st.columns(2)
+        with c_filt1:
+            clientes_cot = ["Todos"] + sorted(df_historico["Cliente"].astype(str).unique().tolist())
+            filtro_cliente = st.selectbox("Filtrar por Cliente:", clientes_cot)
+        with c_filt2:
+            ids_cot = ["Todas"] + sorted(df_historico["ID Cotação"].astype(str).unique().tolist(), reverse=True)
+            filtro_id = st.selectbox("Filtrar por Número (ID):", ids_cot)
             
-            # Exibe a tabela invertida (mais recentes primeiro)
-            st.dataframe(df_historico_cot.iloc[::-1], hide_index=True, use_container_width=True)
+        df_filtrado = df_historico.copy()
+        if filtro_cliente != "Todos": df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
+        if filtro_id != "Todas": df_filtrado = df_filtrado[df_filtrado["ID Cotação"] == filtro_id]
+
+        st.markdown("---")
+        st.markdown("#### 📑 Visão Geral das Propostas")
+        df_master = df_filtrado.groupby(["ID Cotação", "Data", "Cliente"]).agg({"Valor Total Proposta": "max"}).reset_index().sort_values("ID Cotação", ascending=False)
+        st.dataframe(df_master, hide_index=True, use_container_width=True)
+        
+        st.markdown("---")
+        st.markdown("#### 🔍 Detalhes da Cotação")
+        id_selecionado = st.selectbox("Selecione a Cotação para ver os itens:", df_master["ID Cotação"].tolist())
+        
+        if id_selecionado:
+            df_detalhe = df_historico[df_historico["ID Cotação"] == id_selecionado][["Código", "Nome", "Lote", "Preço de Venda Unitário", "Total Faturado"]]
+            st.dataframe(df_detalhe, hide_index=True, use_container_width=True)
             
-            # Botão de Excel para a base completa de cotações
-            buffer_cot = io.BytesIO()
-            with pd.ExcelWriter(buffer_cot, engine='xlsxwriter') as writer:
-                df_historico_cot.to_excel(writer, sheet_name='Cotações Salvas', index=False)
-            
-            st.download_button("📥 Exportar Todo o Histórico de Cotações (.xlsx)", data=buffer_cot.getvalue(), file_name="historico_cotacoes_completo.xlsx", mime="application/vnd.ms-excel")
-        except Exception as e:
-            st.error(f"Erro ao carregar o histórico: {e}")                        
-                    
-                    
+            # Botão Excel da Tela 6
+            buffer_t6 = io.BytesIO()
+            with pd.ExcelWriter(buffer_t6, engine='xlsxwriter') as writer:
+                df_detalhe.to_excel(writer, sheet_name=id_selecionado, index=False)
+            st.download_button("📥 Exportar Itens para Excel (.xlsx)", data=buffer_t6.getvalue(), file_name=f"{id_selecionado}_itens.xlsx", mime="application/vnd.ms-excel")
