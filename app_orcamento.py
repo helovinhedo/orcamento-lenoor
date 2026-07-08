@@ -212,7 +212,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         empresa_sel = st.selectbox("Empresa/Cliente", opces_empresa, index=idx_emp)
         st.session_state["sel_empresa_aba1"] = empresa_sel
         
-        # Correção do Bug Fantasma do KeyError
+        # Correção do Bug Fantasma
         if empresa_sel == "➕ Novo Cliente...":
             nova_emp = st.text_input("Novo Cliente", value=st.session_state["txt_nova_empresa"])
             st.session_state["txt_nova_empresa"] = nova_emp
@@ -495,11 +495,23 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
             
             if df_afetados.empty: st.info("Nenhuma peça mapeada por peso usa esta liga.")
             else:
-                st.write(f"Peças que usam **{liga_recalc}**. Preço no sistema: R$ {materiais[liga_recalc]['preco_atual']:.2f}")
+                st.warning("⚠️ O recálculo utilizará os valores SALVOS no sistema. Se você alterou o preço acima, clique em 'Salvar' antes de prosseguir.")
+                st.write(f"Preço salvo para **{liga_recalc}**: R$ {materiais[liga_recalc]['preco_atual']:.2f}")
+                
                 df_afetados.insert(0, "Recalcular", True)
+                
+                # Desabilita edições acidentais (blindagem da tabela)
                 df_afetados_edit = st.data_editor(
                     df_afetados[["Recalcular", "Empresa", "Código da Peça", "Nome da Peça", "Lote", "Total Kg Lote"]],
-                    hide_index=True, use_container_width=True
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "Recalcular": st.column_config.CheckboxColumn("Recalcular?"),
+                        "Empresa": st.column_config.TextColumn(disabled=True),
+                        "Código da Peça": st.column_config.TextColumn(disabled=True),
+                        "Nome da Peça": st.column_config.TextColumn(disabled=True),
+                        "Lote": st.column_config.NumberColumn(disabled=True),
+                        "Total Kg Lote": st.column_config.NumberColumn(disabled=True)
+                    }
                 )
                 
                 if st.button("🚀 Executar Recálculo de MP"):
@@ -585,65 +597,87 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
     st.markdown("---")
     st.subheader("🔄 Recálculo de Tarifas (Hora-Máquina e Impostos)")
     if not df_init.empty:
-        clientes_selecionados = st.multiselect("Filtrar clientes para recalcular (vazio = TODOS):", options=lista_empresas)
+        # Filtro Inteligente Único
+        opcoes_motivo = [""] + ["Impostos (Afeta todas as peças)"] + [f"Máquina: {m}" for m in valores_maquinas.keys()]
+        motivo_recalc = st.selectbox("Qual tarifa motivou este recálculo?", opcoes_motivo)
         
-        df_ultimos = df_init.copy()
-        df_ultimos['_dt_temp'] = pd.to_datetime(df_ultimos["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
-        df_ultimos = df_ultimos.sort_values("_dt_temp").groupby("Código da Peça").last().reset_index()
-        if clientes_selecionados: df_ultimos = df_ultimos[df_ultimos["Empresa"].isin(clientes_selecionados)]
-        
-        if df_ultimos.empty:
-            st.info("Nenhuma peça encontrada para os filtros selecionados.")
-        else:
-            df_ultimos.insert(0, "Recalcular", True)
-            df_recalc_edit = st.data_editor(
-                df_ultimos[["Recalcular", "Empresa", "Código da Peça", "Nome da Peça", "Lote"]],
-                hide_index=True, use_container_width=True
-            )
+        if motivo_recalc:
+            clientes_selecionados = st.multiselect("Filtrar clientes (vazio = TODOS):", options=lista_empresas)
             
-            if st.button("🚀 Executar Recálculo de Tarifas"):
-                codigos_selecionados = df_recalc_edit[df_recalc_edit["Recalcular"]]["Código da Peça"].tolist()
-                linhas_recalculadas = []
+            df_ultimos = df_init.copy()
+            df_ultimos['_dt_temp'] = pd.to_datetime(df_ultimos["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
+            df_ultimos = df_ultimos.sort_values("_dt_temp").groupby("Código da Peça").last().reset_index()
+            
+            if clientes_selecionados: 
+                df_ultimos = df_ultimos[df_ultimos["Empresa"].isin(clientes_selecionados)]
                 
-                for _, row in df_ultimos[df_ultimos["Código da Peça"].isin(codigos_selecionados)].iterrows():
-                    try:
-                        row_clean = row.to_dict()
-                        roteiro_raw = row_clean.get("Usinagem_JSON", "[]")
-                        roteiro = json.loads(roteiro_raw) if isinstance(roteiro_raw, str) else []
-                        
-                        novo_custo_usinagem = 0.0
-                        lote_recalc = max(1, safe_int(row_clean.get("Lote", 100)))
-                        
-                        if isinstance(roteiro, list):
-                            for op in roteiro:
-                                pcs_h = max(0.1, safe_float(op.get("Peças por Hora"), 50.0))
-                                maq_nome = safe_str(op.get("Máquina"), "Outro")
-                                novo_custo_usinagem += (lote_recalc / pcs_h) * valores_maquinas.get(maq_nome, 120.0)
-                                op["Preço/Hora_Aplicado"] = valores_maquinas.get(maq_nome, 120.0)
-                            row_clean["Usinagem_JSON"] = json.dumps(roteiro)
-                        
-                        custo_fabrica = safe_float(row_clean.get("Custo Material (R$)")) + novo_custo_usinagem + safe_float(row_clean.get("Custo Tratamento (R$)"))
-                        fator_m = max(0.05, (1 - (safe_float(row_clean.get("Margem Lucro (%)", 30)) / 100)))
-                        valor_venda = custo_fabrica / fator_m
-                        imp_pct = safe_float(impostos.get("IR")) + safe_float(impostos.get("FS"))
-                        preco_lote = valor_venda + (valor_venda * (imp_pct / 100))
-                        
-                        row_clean["Preço Total Lote (R$)"] = round(preco_lote, 2)
-                        row_clean["Preço Unitário (R$)"] = round(preco_lote / lote_recalc, 2)
-                        row_clean["Origem/Alteração"] = "Recálculo de Tarifas"
-                        row_clean["Data/Hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                        
-                        if "Recalcular" in row_clean: del row_clean["Recalcular"]
-                        if "_dt_temp" in row_clean: del row_clean["_dt_temp"]
-                        
-                        linhas_recalculadas.append(row_clean)
-                    except: pass
+            # Lógica de Filtragem Cirúrgica pelo JSON
+            if "Impostos" not in motivo_recalc:
+                maq_alvo = motivo_recalc.replace("Máquina: ", "")
+                df_ultimos = df_ultimos[df_ultimos["Usinagem_JSON"].apply(lambda x: maq_alvo in str(x))]
+            
+            if df_ultimos.empty:
+                st.info("Nenhuma peça encontrada com estes critérios.")
+            else:
+                st.warning("⚠️ O recálculo utilizará as taxas SALVAS. Se alterou valores acima, clique em 'Salvar' antes.")
+                df_ultimos.insert(0, "Recalcular", True)
+                
+                # Desabilita edições acidentais
+                df_recalc_edit = st.data_editor(
+                    df_ultimos[["Recalcular", "Empresa", "Código da Peça", "Nome da Peça", "Lote"]],
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "Recalcular": st.column_config.CheckboxColumn("Recalcular?"),
+                        "Empresa": st.column_config.TextColumn(disabled=True),
+                        "Código da Peça": st.column_config.TextColumn(disabled=True),
+                        "Nome da Peça": st.column_config.TextColumn(disabled=True),
+                        "Lote": st.column_config.NumberColumn(disabled=True)
+                    }
+                )
+                
+                if st.button("🚀 Executar Recálculo de Tarifas"):
+                    codigos_selecionados = df_recalc_edit[df_recalc_edit["Recalcular"]]["Código da Peça"].tolist()
+                    linhas_recalculadas = []
                     
-                if linhas_recalculadas:
-                    df_final_salvar = pd.concat([df_init, pd.DataFrame(linhas_recalculadas)], ignore_index=True)
-                    df_final_salvar.to_csv(ARQUIVO_HISTORICO, index=False)
-                    st.session_state["msg_sucesso_aba4"] = f"✅ {len(linhas_recalculadas)} orçamentos recalculados com as novas tarifas!"
-                    st.rerun()
+                    for _, row in df_ultimos[df_ultimos["Código da Peça"].isin(codigos_selecionados)].iterrows():
+                        try:
+                            row_clean = row.to_dict()
+                            roteiro_raw = row_clean.get("Usinagem_JSON", "[]")
+                            roteiro = json.loads(roteiro_raw) if isinstance(roteiro_raw, str) else []
+                            
+                            novo_custo_usinagem = 0.0
+                            lote_recalc = max(1, safe_int(row_clean.get("Lote", 100)))
+                            
+                            if isinstance(roteiro, list):
+                                for op in roteiro:
+                                    pcs_h = max(0.1, safe_float(op.get("Peças por Hora"), 50.0))
+                                    maq_nome = safe_str(op.get("Máquina"), "Outro")
+                                    novo_custo_usinagem += (lote_recalc / pcs_h) * valores_maquinas.get(maq_nome, 120.0)
+                                    op["Preço/Hora_Aplicado"] = valores_maquinas.get(maq_nome, 120.0)
+                                row_clean["Usinagem_JSON"] = json.dumps(roteiro)
+                            
+                            custo_fabrica = safe_float(row_clean.get("Custo Material (R$)")) + novo_custo_usinagem + safe_float(row_clean.get("Custo Tratamento (R$)"))
+                            fator_m = max(0.05, (1 - (safe_float(row_clean.get("Margem Lucro (%)", 30)) / 100)))
+                            valor_venda = custo_fabrica / fator_m
+                            imp_pct = safe_float(impostos.get("IR")) + safe_float(impostos.get("FS"))
+                            preco_lote = valor_venda + (valor_venda * (imp_pct / 100))
+                            
+                            row_clean["Preço Total Lote (R$)"] = round(preco_lote, 2)
+                            row_clean["Preço Unitário (R$)"] = round(preco_lote / lote_recalc, 2)
+                            row_clean["Origem/Alteração"] = "Recálculo de Tarifas"
+                            row_clean["Data/Hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+                            
+                            if "Recalcular" in row_clean: del row_clean["Recalcular"]
+                            if "_dt_temp" in row_clean: del row_clean["_dt_temp"]
+                            
+                            linhas_recalculadas.append(row_clean)
+                        except: pass
+                        
+                    if linhas_recalculadas:
+                        df_final_salvar = pd.concat([df_init, pd.DataFrame(linhas_recalculadas)], ignore_index=True)
+                        df_final_salvar.to_csv(ARQUIVO_HISTORICO, index=False)
+                        st.session_state["msg_sucesso_aba4"] = f"✅ {len(linhas_recalculadas)} orçamentos recalculados com as novas tarifas!"
+                        st.rerun()
 
     if st.session_state.get("msg_sucesso_aba4"):
         st.success(st.session_state["msg_sucesso_aba4"])
