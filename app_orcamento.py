@@ -180,7 +180,7 @@ materiais = st.session_state.materiais
 # 🧭 3. NAVEGAÇÃO LATERAL E TÍTULO
 # =============================================================================
 st.sidebar.title("🧭 Menu Lenoor")
-opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Matéria-Prima", "⚙️ 4. Custos Fixos & BD"]
+opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Matéria-Prima", "⚙️ 4. Custos Fixos & BD", "🛒 5. Cotação Final"]
 opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
 # A Cereja do Bolo: Versão no Menu Lateral
@@ -690,3 +690,122 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
         if codigo_del and st.button(f"Deletar todos os registros de {codigo_del}", type="primary"):
             df_init[df_init["Código da Peça"] != codigo_del].to_csv(ARQUIVO_HISTORICO, index=False)
             st.rerun()
+# =============================================================================
+# 🛒 TELA 5: COTAÇÃO FINAL (VENDAS)
+# =============================================================================
+elif opcao_menu == "🛒 5. Cotação Final":
+    st.subheader("🛒 Montador de Cotação (Simulação)")
+    st.write("Crie propostas comerciais alterando Lotes e Margens livremente. Nada salvo aqui altera a engenharia do sistema.")
+
+    if df_init.empty:
+        st.info("Nenhum orçamento disponível no banco de dados.")
+    else:
+        cliente_cot = st.selectbox("Selecione o Cliente para cotar:", [""] + lista_empresas)
+
+        if cliente_cot:
+            # Puxa a última versão de engenharia de cada peça deste cliente
+            df_cli = df_init[df_init["Empresa"] == cliente_cot].copy()
+            df_cli['_dt'] = pd.to_datetime(df_cli["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
+            df_ultimos = df_cli.sort_values("_dt").groupby("Código da Peça").last().reset_index()
+
+            pecas_selecionadas = st.multiselect("Adicione as peças que o cliente pediu ao carrinho:", options=df_ultimos["Código da Peça"].tolist())
+
+            if pecas_selecionadas:
+                st.markdown("### 📝 Mesa de Negociação")
+                
+                # Desmontando a matemática para achar o Custo de Fábrica UNITÁRIO puro (sem lucro/imposto)
+                dados_carrinho = []
+                for _, row in df_ultimos[df_ultimos["Código da Peça"].isin(pecas_selecionadas)].iterrows():
+                    r = row.to_dict()
+                    lote_original = max(1, safe_int(r.get("Lote", 100)))
+
+                    custo_mat_unit = safe_float(r.get("Custo Material (R$)")) / lote_original
+                    custo_trat_unit = safe_float(r.get("Custo Tratamento (R$)")) / lote_original
+
+                    roteiro_raw = r.get("Usinagem_JSON", "[]")
+                    roteiro = json.loads(roteiro_raw) if isinstance(roteiro_raw, str) else []
+                    custo_usi_unit = 0.0
+                    
+                    if isinstance(roteiro, list):
+                        for op in roteiro:
+                            pcs_h = max(0.1, safe_float(op.get("Peças por Hora"), 50.0))
+                            maq_nome = safe_str(op.get("Máquina"), "Outro")
+                            taxa_hora = safe_float(op.get("Preço/Hora_Aplicado", st.session_state.valores_maquinas.get(maq_nome, 120.0)))
+                            custo_usi_unit += (1 / pcs_h) * taxa_hora  # Custo de 1 peça nesta máquina
+
+                    custo_fabrica_unit = custo_mat_unit + custo_trat_unit + custo_usi_unit
+
+                    dados_carrinho.append({
+                        "Código da Peça": r["Código da Peça"],
+                        "Nome": safe_str(r.get("Nome da Peça", "")),
+                        "Custo Fáb. Unit (R$)": custo_fabrica_unit,
+                        "Lote Cotado": lote_original,
+                        "Margem de Lucro (%)": safe_float(r.get("Margem Lucro (%)", 30))
+                    })
+
+                df_base_cotacao = pd.DataFrame(dados_carrinho)
+
+                # A Tabela Interativa de Vendas
+                st.info("💡 Fique à vontade para editar as colunas 'Lote Cotado' e 'Margem de Lucro (%)'.")
+                df_editado = st.data_editor(
+                    df_base_cotacao,
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "Código da Peça": st.column_config.TextColumn(disabled=True),
+                        "Nome": st.column_config.TextColumn(disabled=True),
+                        "Custo Fáb. Unit (R$)": st.column_config.NumberColumn(format="R$ %.2f", disabled=True),
+                        "Lote Cotado": st.column_config.NumberColumn(min_value=1, step=1),
+                        "Margem de Lucro (%)": st.column_config.NumberColumn(min_value=5.0, max_value=95.0, step=1.0)
+                    }
+                )
+
+                # Motor de Recálculo Instantâneo da Venda
+                total_imposto_pct = safe_float(st.session_state.impostos.get("IR")) + safe_float(st.session_state.impostos.get("FS"))
+
+                valor_total_cotacao = 0.0
+                imposto_total_cotacao = 0.0
+                custo_total_cotacao = 0.0
+                resultados_visuais = []
+
+                for _, row in df_editado.iterrows():
+                    lote = safe_int(row["Lote Cotado"])
+                    margem = safe_float(row["Margem de Lucro (%)"])
+                    custo_unit = safe_float(row["Custo Fáb. Unit (R$)"])
+
+                    # Refazendo a matemática do zero para o lote simulado
+                    custo_bruto_lote = custo_unit * lote
+                    fator_lucro = max(0.05, (1 - (margem / 100)))
+                    valor_sem_imposto = custo_bruto_lote / fator_lucro
+                    imposto_reais = valor_sem_imposto * (total_imposto_pct / 100)
+                    preco_lote_final = valor_sem_imposto + imposto_reais
+                    preco_unit_final = preco_lote_final / lote
+
+                    valor_total_cotacao += preco_lote_final
+                    imposto_total_cotacao += imposto_reais
+                    custo_total_cotacao += custo_bruto_lote
+
+                    resultados_visuais.append({
+                        "Código": row["Código da Peça"],
+                        "Nome": row["Nome"],
+                        "Lote": lote,
+                        "Preço Unitário": f"R$ {preco_unit_final:.2f}",
+                        "Preço Total Lote": f"R$ {preco_lote_final:.2f}"
+                    })
+
+                # Painel Executivo
+                st.markdown("---")
+                st.markdown("### 📊 Painel Executivo da Cotação")
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Valor Total a Faturar", f"R$ {valor_total_cotacao:.2f}")
+                c2.metric("Custo Total de Fábrica", f"R$ {custo_total_cotacao:.2f}")
+                c3.metric("Lucro Bruto Projetado", f"R$ {valor_total_cotacao - custo_total_cotacao - imposto_total_cotacao:.2f}")
+                c4.metric(f"Guia de Impostos ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
+
+                # Tabela Limpa para o Cliente
+                st.markdown("#### 📋 Espelho para o Cliente")
+                df_resumo = pd.DataFrame(resultados_visuais)
+                st.dataframe(df_resumo, hide_index=True, use_container_width=True)
+
+                csv_cotacao = df_resumo.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Baixar Tabela para Envio (Excel/CSV)", data=csv_cotacao, file_name=f"cotacao_{cliente_cot}.csv", mime="text/csv")
