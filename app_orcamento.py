@@ -168,15 +168,25 @@ def carregar_roteiro_antigo_callback():
                 st.session_state["num_diam_barra"] = max(0.0, safe_float(last_hist.get("Diâmetro (mm)", 15.0)))
                 st.session_state["num_di_ext"] = max(0.0, safe_float(last_hist.get("Diâmetro Externo (mm)", 20.0)))
                 st.session_state["num_di_int"] = max(0.0, safe_float(last_hist.get("Diâmetro Interno (mm)", 10.0)))
-                st.session_state["slider_lucro_aba1"] = clip_lucro(safe_int(last_hist.get("Margem Lucro (%)", 30)))
                 
-                # CORREÇÃO CRÍTICA DO CORPO DA TABELA: Filtra estritamente as colunas configuradas para o editor
+                # CORREÇÃO 1: Limite seguro nativo em vez da função fantasma 'clip_lucro'
+                margem_historica = safe_int(last_hist.get("Margem Lucro (%)", 30))
+                st.session_state["slider_lucro_aba1"] = max(15, min(margem_historica, 95))
+                
+                # CORREÇÃO 2: Leitura blindada do JSON de usinagem
                 if "Usinagem_JSON" in last_hist and safe_str(last_hist["Usinagem_JSON"]) not in ["", "[]"]:
-                    df_usi_carregado = pd.read_json(io.StringIO(last_hist["Usinagem_JSON"]))
+                    # Leitura robusta
+                    df_usi_carregado = pd.read_json(io.StringIO(str(last_hist["Usinagem_JSON"])), orient='records')
+                    
+                    # Prevenção de KeyError: garante que as colunas existem antes de fatiar
+                    colunas_necessarias = ["Operação", "Máquina", "Peças por Hora"]
+                    for col in colunas_necessarias:
+                        if col not in df_usi_carregado.columns:
+                            df_usi_carregado[col] = "Outro" if col == "Máquina" else (50.0 if col == "Peças por Hora" else "")
                     
                     if "Preço/Hora_Aplicado" in df_usi_carregado.columns:
                         df_usi_carregado["Preço/Hora_Aplicado"] = df_usi_carregado.apply(
-                            lambda r: st.session_state.valores_maquinas.get(r["Máquina"], 120.0) if pd.isna(r["Preço/Hora_Aplicado"]) or r["Preço/Hora_Aplicado"] is None else r["Preço/Hora_Aplicado"], axis=1
+                            lambda r: st.session_state.valores_maquinas.get(r["Máquina"], 120.0) if pd.isna(r.get("Preço/Hora_Aplicado")) else r["Preço/Hora_Aplicado"], axis=1
                         )
                         resumo_taxas = " | ".join([f"{r['Máquina']}: R$ {r['Preço/Hora_Aplicado']}/h" for _, r in df_usi_carregado.drop_duplicates(subset=['Máquina']).iterrows()])
                         st.session_state["taxas_original_msg"] = f"Taxas de hora-máquina aplicadas no último cálculo desta peça: {resumo_taxas}"
@@ -184,15 +194,18 @@ def carregar_roteiro_antigo_callback():
                         st.session_state["taxas_original_msg"] = "Taxas de hora-máquina: Histórico detalhado indisponível para este registro antigo."
                     
                     # Filtra mantendo apenas as colunas mapeadas do editor dinâmico
-                    st.session_state["df_usinagem_v3"] = df_usi_carregado[["Operação", "Máquina", "Peças por Hora"]].copy()
+                    st.session_state["df_usinagem_v3"] = df_usi_carregado[colunas_necessarias].copy()
                 
                 if "Tratamento_JSON" in last_hist and safe_str(last_hist["Tratamento_JSON"]) not in ["", "[]"]:
-                    df_trat_carregado = pd.read_json(io.StringIO(last_hist["Tratamento_JSON"]))
+                    df_trat_carregado = pd.read_json(io.StringIO(str(last_hist["Tratamento_JSON"])))
                     st.session_state["df_tratamento_v3"] = df_trat_carregado[["Tratamento", "Preço por Kg (R$)"]].copy()
                     
                 st.session_state.editor_version += 1
+                
         except Exception as e:
-            st.error(f"Erro ao processar autocomplete: {e}")
+            # CORREÇÃO 3: Impede que erros futuros passem em branco
+            st.toast(f"Erro invisível evitado: {e}", icon="⚠️")
+            st.session_state["taxas_original_msg"] = f"Erro no callback de preenchimento: {e}"
 
 valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
