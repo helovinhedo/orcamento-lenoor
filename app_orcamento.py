@@ -420,24 +420,24 @@ if opcao_menu == "📊 1. Novo Orçamento":
 # =============================================================================
 # 📚 MÓDULO DE AJUDA E DOCUMENTAÇÃO (RODAPÉ PERSISTENTE)
 # =============================================================================
-st.markdown("---")
-with st.expander("❓ Entenda os Cálculos do Sistema (Fórmulas e Regras)"):
-    st.markdown("Este sistema foi desenhado com engenharia de custos precisa. Abaixo estão as fórmulas matemáticas abertas para fins de auditoria e governança:")
-    
-    st.markdown("#### 🧱 1. Cálculo de Tubos e Buchas")
-    st.markdown("O sistema calcula o peso de 1 metro linear do tubo como se fosse uma barra maciça e subtrai o 'miolo' vazio, utilizando a constante de densidade da liga selecionada.")
-    st.latex(r"Peso/Metro = \frac{(D_{ext}^2 - D_{int}^2) \times Constante\_da\_Liga}{100}")
-    
-    st.markdown("#### 🔨 2. Custo de Usinagem")
-    st.markdown("Baseado na produção por hora inserida no roteiro. O sistema descobre quantas horas a máquina vai trabalhar no lote inteiro e multiplica pela tarifa R$/hora.")
-    st.latex(r"Custo\_Usinagem = \left( \frac{Tamanho\_do\_Lote}{Pe\text{\c{c}}as\_por\_Hora} \right) \times Taxa\_M\acute{a}quina\_(R\$/h)")
-    
-    st.markdown("#### 💰 3. Formação do Preço de Venda (Markup Divisor)")
-    st.markdown("O sistema calcula o valor de venda de forma *Bottom-Up* (de baixo para cima), garantindo que a **Margem de Lucro Bruta (%)** informada seja um ganho real sobre o faturamento de fábrica, e não apenas um acréscimo simples.")
-    st.latex(r"Faturamento\_Bruto = \frac{Custo\_de\_F\acute{a}brica}{1 - \left( \frac{Margem\%}{100} \right)}")
-    
-    st.markdown("#### 🧾 4. Impostos (Guias)")
-    st.markdown("Os impostos são calculados estritamente sobre o Faturamento Bruto projetado (antes do acréscimo do próprio imposto no preço final).")
+    st.markdown("---")
+    with st.expander("❓ Entenda os Cálculos do Sistema (Fórmulas e Regras)"):
+        st.markdown("Este sistema foi desenhado com engenharia de custos precisa. Abaixo estão as fórmulas matemáticas abertas para fins de auditoria e governança:")
+        
+        st.markdown("#### 🧱 1. Cálculo de Tubos e Buchas")
+        st.markdown("O sistema calcula o peso de 1 metro linear do tubo como se fosse uma barra maciça e subtrai o 'miolo' vazio, utilizando a constante de densidade da liga selecionada.")
+        st.latex(r"Peso/Metro = \frac{(D_{ext}^2 - D_{int}^2) \times Constante\_da\_Liga}{100}")
+        
+        st.markdown("#### 🔨 2. Custo de Usinagem")
+        st.markdown("Baseado na produção por hora inserida no roteiro. O sistema descobre quantas horas a máquina vai trabalhar no lote inteiro e multiplica pela tarifa R$/hora.")
+        st.latex(r"Custo\_Usinagem = \left( \frac{Tamanho\_do\_Lote}{Pe\text{\c{c}}as\_por\_Hora} \right) \times Taxa\_M\acute{a}quina\_(R\$/h)")
+        
+        st.markdown("#### 💰 3. Formação do Preço de Venda (Markup Divisor)")
+        st.markdown("O sistema calcula o valor de venda de forma *Bottom-Up* (de baixo para cima), garantindo que a **Margem de Lucro Bruta (%)** informada seja um ganho real sobre o faturamento de fábrica, e não apenas um acréscimo simples.")
+        st.latex(r"Faturamento\_Bruto = \frac{Custo\_de\_F\acute{a}brica}{1 - \left( \frac{Margem\%}{100} \right)}")
+        
+        st.markdown("#### 🧾 4. Impostos (Guias)")
+        st.markdown("Os impostos são calculados estritamente sobre o Faturamento Bruto projetado (antes do acréscimo do próprio imposto no preço final).")
 
 # =============================================================================
 # 📜 TELA 2: HISTÓRICO COM FILTRO EM CASCATA
