@@ -780,12 +780,14 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
 # 🛒 TELA 5: COTAÇÃO FINAL (VENDAS)
 # =============================================================================
 elif opcao_menu == "🛒 5. Cotação Final":
-    st.subheader("🛒 Mesa de Negociação (Simulador)")
-    st.write("Crie propostas comerciais alterando Lotes e Margens livremente. Nada salvo aqui altera a engenharia do sistema.")
+    st.subheader("🛒 Módulo de Vendas (Simulador de Cotação)")
+    st.write("Monte propostas comerciais simulando Lotes e Margens livremente. Salve e exporte para o cliente.")
 
     if df_init.empty:
-        st.info("Nenhum orçamento disponível no banco de dados.")
+        st.info("Nenhum orçamento disponível no banco de dados da engenharia.")
     else:
+        # --- PASSO 1: O CARRINHO ---
+        st.markdown("### Passo 1: Seleção do Cliente e Peças")
         cliente_cot = st.selectbox("Selecione o Cliente para cotar:", [""] + lista_empresas)
 
         if cliente_cot:
@@ -793,15 +795,19 @@ elif opcao_menu == "🛒 5. Cotação Final":
             df_cli['_dt'] = pd.to_datetime(df_cli["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
             df_ultimos = df_cli.sort_values("_dt").groupby("Código da Peça").last().reset_index()
 
-            pecas_selecionadas = st.multiselect("Adicione as peças que o cliente pediu ao carrinho:", options=df_ultimos["Código da Peça"].tolist())
+            pecas_selecionadas = st.multiselect("Adicione as peças ao carrinho:", options=df_ultimos["Código da Peça"].tolist())
 
             if pecas_selecionadas:
-                st.markdown("### 📝 Carrinho de Vendas")
+                # --- PASSO 2: MESA DE NEGOCIAÇÃO ---
+                st.markdown("---")
+                st.markdown("### Passo 2: Mesa de Negociação")
+                st.info("💡 Edite as colunas 'Novo Lote' e 'Margem Desejada (%)' para ajustar o preço da proposta.")
                 
                 dados_carrinho = []
                 for _, row in df_ultimos[df_ultimos["Código da Peça"].isin(pecas_selecionadas)].iterrows():
                     r = row.to_dict()
                     lote_original = max(1, safe_int(r.get("Lote", 100)))
+                    
                     custo_mat_unit = safe_float(r.get("Custo Material (R$)")) / lote_original
                     custo_trat_unit = safe_float(r.get("Custo Tratamento (R$)")) / lote_original
                     peso_unit = safe_float(r.get("Total Kg Lote")) / lote_original
@@ -816,15 +822,15 @@ elif opcao_menu == "🛒 5. Cotação Final":
                             taxa_hora = safe_float(op.get("Preço/Hora_Aplicado", st.session_state.valores_maquinas.get(maq_nome, 120.0)))
                             custo_usi_unit += (1 / pcs_h) * taxa_hora
 
-                    custo_fabrica_unit = custo_mat_unit + custo_trat_unit + custo_usi_unit
+                    custo_base_unit = custo_mat_unit + custo_trat_unit + custo_usi_unit
 
                     dados_carrinho.append({
                         "Código da Peça": r["Código da Peça"],
                         "Nome": safe_str(r.get("Nome da Peça", "")),
-                        "Custo Fáb. Unit (R$)": custo_fabrica_unit,
+                        "Custo Base (R$)": custo_base_unit,
                         "Peso Unit. (Kg)": peso_unit,
-                        "Lote Cotado": lote_original,
-                        "Margem de Lucro (%)": safe_float(r.get("Margem Lucro (%)", 30))
+                        "Novo Lote": lote_original,
+                        "Margem Desejada (%)": safe_float(r.get("Margem Lucro (%)", 30))
                     })
 
                 df_base_cotacao = pd.DataFrame(dados_carrinho)
@@ -834,28 +840,30 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     column_config={
                         "Código da Peça": st.column_config.TextColumn(disabled=True),
                         "Nome": st.column_config.TextColumn(disabled=True),
-                        "Custo Fáb. Unit (R$)": st.column_config.NumberColumn(format="R$ %.2f", disabled=True),
+                        "Custo Base (R$)": st.column_config.NumberColumn("Custo Base (Não Editável)", format="R$ %.2f", disabled=True),
                         "Peso Unit. (Kg)": st.column_config.NumberColumn(format="%.3f kg", disabled=True),
-                        "Lote Cotado": st.column_config.NumberColumn(min_value=1, step=1),
-                        "Margem de Lucro (%)": st.column_config.NumberColumn(min_value=1.0, max_value=99.0, step=1.0)
+                        "Novo Lote": st.column_config.NumberColumn(min_value=1, step=1),
+                        "Margem Desejada (%)": st.column_config.NumberColumn(min_value=1.0, max_value=99.0, step=1.0)
                     }
                 )
 
-                # --- MOTOR DE CÁLCULO ---
+                # --- Motor de Vendas (Recálculo On the Fly) ---
                 total_imposto_pct = safe_float(st.session_state.impostos.get("IR")) + safe_float(st.session_state.impostos.get("FS"))
                 valor_total_cotacao, imposto_total_cotacao, custo_total_cotacao, peso_total_cotacao = 0.0, 0.0, 0.0, 0.0
                 resultados_visuais = []
 
                 for _, row in df_editado.iterrows():
-                    lote = safe_int(row["Lote Cotado"])
-                    margem = safe_float(row["Margem de Lucro (%)"])
-                    custo_unit = safe_float(row["Custo Fáb. Unit (R$)"])
+                    lote = safe_int(row["Novo Lote"])
+                    margem = safe_float(row["Margem Desejada (%)"])
+                    custo_unit = safe_float(row["Custo Base (R$)"])
+                    
                     peso_total_cotacao += safe_float(row["Peso Unit. (Kg)"]) * lote
 
                     custo_bruto_lote = custo_unit * lote
                     fator_lucro = max(0.01, (1 - (margem / 100)))
                     valor_sem_imposto = custo_bruto_lote / fator_lucro
                     imposto_reais = valor_sem_imposto * (total_imposto_pct / 100)
+                    
                     preco_lote_final = valor_sem_imposto + imposto_reais
                     preco_unit_final = preco_lote_final / lote
 
@@ -864,17 +872,28 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     custo_total_cotacao += custo_bruto_lote
 
                     resultados_visuais.append({
-                        "Código": row["Código da Peça"], "Nome": row["Nome"], "Lote": lote,
-                        "Preço Unitário": f"R$ {preco_unit_final:.2f}", "Preço Total": f"R$ {preco_lote_final:.2f}"
+                        "Código": row["Código da Peça"], 
+                        "Nome": row["Nome"], 
+                        "Lote": lote,
+                        "Preço de Venda Unitário": round(preco_unit_final, 2), 
+                        "Total Faturado": round(preco_lote_final, 2)
                     })
 
-                # --- TABELA PARA PRINT ---
-                st.markdown("### 📋 Espelho para o Cliente")
-                st.dataframe(pd.DataFrame(resultados_visuais), hide_index=True, use_container_width=True)
-                
-                # --- PAINEL EXECUTIVO (MOVIDO PARA BAIXO) ---
+                # --- PASSO 3: A PROPOSTA ---
                 st.markdown("---")
-                st.markdown("### 📊 Raio-X da Negociação")
+                st.markdown("### Passo 3: A Proposta (Visão do Cliente)")
+                df_resumo = pd.DataFrame(resultados_visuais)
+                
+                # Formatar a tabela visualmente (sem estragar os números para o Excel)
+                df_resumo_formatado = df_resumo.copy()
+                df_resumo_formatado["Preço de Venda Unitário"] = df_resumo_formatado["Preço de Venda Unitário"].apply(lambda x: f"R$ {x:.2f}")
+                df_resumo_formatado["Total Faturado"] = df_resumo_formatado["Total Faturado"].apply(lambda x: f"R$ {x:.2f}")
+                
+                st.dataframe(df_resumo_formatado, hide_index=True, use_container_width=True)
+                
+                # --- PASSO 4: RAIO-X DA NEGOCIAÇÃO ---
+                st.markdown("---")
+                st.markdown("### 📊 Passo 4: Raio-X da Negociação (Visão Interna)")
                 
                 lucro_bruto_reais = valor_total_cotacao - custo_total_cotacao
                 lucro_real_reais = lucro_bruto_reais - imposto_total_cotacao
@@ -884,9 +903,53 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("1. Faturamento Total", f"R$ {valor_total_cotacao:.2f}")
                 c2.metric("2. Custo de Fábrica", f"R$ {custo_total_cotacao:.2f}")
-                c3.metric("3. Margem Bruta", f"{margem_bruta_pct:.1f} %")
-                c4.metric("4. Lucro Livre (R$)", f"R$ {lucro_real_reais:.2f}")
+                c3.metric(f"3. Guias de Imposto ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
+                c4.metric("4. Lucro Livre (Dinheiro no Bolso)", f"R$ {lucro_real_reais:.2f}")
 
-                st.write(f"**Peso Total:** {peso_total_cotacao:.2f} kg | **Margem Líquida Real:** {margem_real_pct:.1f}%")
+                st.write("") # Espaçamento
+                c5, c6, c7, c8 = st.columns(4)
+                c5.metric("5. Margem Bruta (%)", f"{margem_bruta_pct:.1f} %")
+                c6.metric("6. Margem Líquida Real (%)", f"{margem_real_pct:.1f} %")
+                c7.metric("7. Peso Total Estimado", f"{peso_total_cotacao:.2f} kg")
+                c8.write("")
                 
-                st.download_button("📥 Baixar Resumo (CSV)", data=pd.DataFrame(resultados_visuais).to_csv(index=False).encode('utf-8'), file_name=f"cotacao_{cliente_cot}.csv", mime="text/csv")
+                st.markdown("---")
+                
+                # --- PASSO 5: AÇÕES FINAIS ---
+                col_btn1, col_btn2 = st.columns(2)
+                
+                with col_btn1:
+                    if st.button("💾 Salvar Cotação no Histórico", type="primary"):
+                        ARQUIVO_COTACOES = "historico_cotacoes_vendas.csv"
+                        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                        
+                        df_salvar_cot = df_resumo.copy()
+                        df_salvar_cot["Data/Hora"] = agora
+                        df_salvar_cot["Cliente"] = cliente_cot
+                        df_salvar_cot["Faturamento Total Cotação"] = valor_total_cotacao
+                        df_salvar_cot["Lucro Real (%)"] = margem_real_pct
+                        
+                        if os.path.exists(ARQUIVO_COTACOES):
+                            try:
+                                df_cot_antigo = pd.read_csv(ARQUIVO_COTACOES)
+                                df_cot_final = pd.concat([df_cot_antigo, df_salvar_cot], ignore_index=True)
+                            except:
+                                df_cot_final = df_salvar_cot
+                        else:
+                            df_cot_final = df_salvar_cot
+                            
+                        df_cot_final.to_csv(ARQUIVO_COTACOES, index=False)
+                        st.success("✅ Cotação salva com sucesso no banco de dados!")
+                
+                with col_btn2:
+                    # Geração mágica do arquivo Excel na memória
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        df_resumo.to_excel(writer, sheet_name='Proposta Comercial', index=False)
+                    
+                    st.download_button(
+                        label="📥 Exportar Proposta para Excel (.xlsx)",
+                        data=buffer.getvalue(),
+                        file_name=f"Cotacao_{cliente_cot}_{datetime.now().strftime('%d%m%Y')}.xlsx",
+                        mime="application/vnd.ms-excel"
+                    )
