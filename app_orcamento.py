@@ -518,6 +518,36 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
                 
             st.toast("✅ Preços atualizados e registrados no histórico de compras!")
             st.rerun()
+            # --- DASHBOARD VISUAL DO HISTÓRICO DE COMPRAS ---
+    ARQUIVO_AUDITORIA_MP = "historico_compras_mp.csv"
+    with st.expander("📈 Ver Histórico de Evolução de Preços (MP)"):
+        if not os.path.exists(ARQUIVO_AUDITORIA_MP):
+            st.info("Nenhum histórico de alteração de preços registrado ainda.")
+        else:
+            try:
+                df_aud = pd.read_csv(ARQUIVO_AUDITORIA_MP)
+                
+                # Filtro dinâmico para o gráfico não ficar poluído
+                materiais_historico = sorted(df_aud["Liga/Material"].unique().tolist())
+                mat_grafico = st.selectbox("Escolha o material para ver o gráfico de evolução:", materiais_historico, key="recalc_graf_mp")
+                
+                df_filtrado_graf = df_aud[df_aud["Liga/Material"] == mat_grafico].copy()
+                
+                if not df_filtrado_graf.empty:
+                    # Monta o gráfico de linha estético
+                    st.markdown(f"#### Tendência de Preço - {mat_grafico}")
+                    df_graf_exibir = df_filtrado_graf.set_index("Data Alteração")[["Preço Novo (R$)"]]
+                    st.line_chart(df_graf_exibir, use_container_width=True)
+                    
+                    # Tabela detalhada reversa (mais recente primeiro)
+                    st.markdown("#### Lista de Alterações")
+                    st.dataframe(df_filtrado_graf.iloc[::-1], hide_index=True, use_container_width=True)
+                    
+                    # Botão para baixar a planilha limpa em CSV do histórico de compras se precisar
+                    csv_aud = df_filtrado_graf.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Baixar Histórico deste Material", data=csv_aud, file_name=f"historico_precos_{mat_grafico}.csv", mime="text/csv")
+            except:
+                st.error("Erro ao carregar o arquivo de histórico de compras de MP.")
             
     st.markdown("---")
     st.subheader("🔄 Recalcular por Material")
