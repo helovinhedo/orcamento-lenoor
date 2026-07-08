@@ -443,7 +443,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
 # 📜 TELA 2: HISTÓRICO COM FILTRO EM CASCATA
 # =============================================================================
 elif opcao_menu == "📜 2. Histórico de Peças":
-    if df_init.empty: st.info("Nenhum orçamento gerado.")
+    if df_init.empty: 
+        st.info("Nenhum orçamento gerado.")
     else:
         c_filt1, c_filt2 = st.columns(2)
         with c_filt1: cliente_filtro = st.multiselect("🔍 Cliente:", options=lista_empresas)
@@ -465,20 +466,18 @@ elif opcao_menu == "📜 2. Histórico de Peças":
             if c not in df_ord.columns: df_ord[c] = "N/A"
         
         if "Completo" in opcao_visao: 
-                    df_exibir_t2 = df_ord[cols].iloc[::-1]
-                else:
-                    df_ult = df_ord.groupby("Código da Peça").last().reset_index().sort_values("Empresa")
-                    df_exibir_t2 = df_ult[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"]]
-                    
-                st.dataframe(df_exibir_t2, use_container_width=True)
-                
-                # Botão Excel da Tela 2
-                buffer_t2 = io.BytesIO()
-                with pd.ExcelWriter(buffer_t2, engine='xlsxwriter') as writer:
-                    df_exibir_t2.to_excel(writer, sheet_name='Historico_Pecas', index=False)
-                
-                st.download_button("📥 Exportar Tabela para Excel (.xlsx)", data=buffer_t2.getvalue(), file_name="historico_pecas_lenoor.xlsx", mime="application/vnd.ms-excel")
-
+            df_exibir_t2 = df_ord[cols].iloc[::-1]
+        else:
+            df_ult = df_ord.groupby("Código da Peça").last().reset_index().sort_values("Empresa")
+            df_exibir_t2 = df_ult[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"]]
+            
+        st.dataframe(df_exibir_t2, use_container_width=True)
+        
+        buffer_t2 = io.BytesIO()
+        with pd.ExcelWriter(buffer_t2, engine='xlsxwriter') as writer:
+            df_exibir_t2.to_excel(writer, sheet_name='Historico_Pecas', index=False)
+        
+        st.download_button("📥 Exportar Tabela para Excel (.xlsx)", data=buffer_t2.getvalue(), file_name="historico_pecas_lenoor.xlsx", mime="application/vnd.ms-excel")
 # =============================================================================
 # 🧱 TELA 3: MATÉRIA-PRIMA E RECÁLCULO INTELIGENTE
 # =============================================================================
