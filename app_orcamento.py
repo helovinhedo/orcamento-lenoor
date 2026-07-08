@@ -885,10 +885,15 @@ elif opcao_menu == "🛒 5. Cotação Final":
 
                 st.markdown("---")
                 st.markdown("### Passo 3: A Proposta (Visão do Cliente)")
+                
+                # Funções para formatar no padrão brasileiro (R$ 1.234,56)
+                def formatar_br(valor):
+                    return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
                 df_resumo = pd.DataFrame(resultados_visuais)
                 df_resumo_formatado = df_resumo.copy()
-                df_resumo_formatado["Preço de Venda Unitário"] = df_resumo_formatado["Preço de Venda Unitário"].apply(lambda x: f"R$ {x:.2f}")
-                df_resumo_formatado["Total Faturado"] = df_resumo_formatado["Total Faturado"].apply(lambda x: f"R$ {x:.2f}")
+                df_resumo_formatado["Preço de Venda Unitário"] = df_resumo_formatado["Preço de Venda Unitário"].apply(lambda x: f"R$ {formatar_br(x)}")
+                df_resumo_formatado["Total Faturado"] = df_resumo_formatado["Total Faturado"].apply(lambda x: f"R$ {formatar_br(x)}")
                 st.dataframe(df_resumo_formatado, hide_index=True, use_container_width=True)
                 
                 st.markdown("---")
@@ -900,10 +905,10 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 margem_real_pct = (lucro_real_reais / valor_total_cotacao * 100) if valor_total_cotacao > 0 else 0
                 
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("1. Faturamento", f"R$ {valor_total_cotacao:.2f}")
-                c2.metric("2. Custo de Fábrica", f"R$ {custo_total_cotacao:.2f}")
-                c3.metric(f"3. Impostos ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
-                c4.metric("4. Lucro Real", f"R$ {lucro_real_reais:.2f}")
+                c1.metric("1. Faturamento", f"R$ {formatar_br(valor_total_cotacao)}")
+                c2.metric("2. Custo de Fábrica", f"R$ {formatar_br(custo_total_cotacao)}")
+                c3.metric(f"3. Impostos ({total_imposto_pct}%)", f"R$ {formatar_br(imposto_total_cotacao)}")
+                c4.metric("4. Lucro Real", f"R$ {formatar_br(lucro_real_reais)}")
 
                 st.markdown("---")
                 st.markdown("### Passo 5: Salvar e Exportar")
@@ -918,17 +923,18 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 if os.path.exists(ARQUIVO_COTACOES):
                     try:
                         df_existente = pd.read_csv(ARQUIVO_COTACOES)
-                        ids_ano = df_existente[df_existente['ID Cotação'].astype(str).str.contains(f"COT-{ano_atual}", na=False)]
-                        if not ids_ano.empty:
-                            max_num = ids_ano['ID Cotação'].str.split('-').str[-1].astype(int).max()
-                            novo_id = f"COT-{ano_atual}-{max_num + 1:03d}"
+                        if "ID Cotação" in df_existente.columns:
+                            ids_ano = df_existente[df_existente['ID Cotação'].astype(str).str.contains(f"COT-{ano_atual}", na=False)]
+                            if not ids_ano.empty:
+                                max_num = ids_ano['ID Cotação'].str.split('-').str[-1].astype(int).max()
+                                novo_id = f"COT-{ano_atual}-{max_num + 1:03d}"
                     except: pass
 
                 def gerar_doc_word(id_cot, cliente, df_itens, total, peso):
                     doc = Document()
-                    doc.add_heading('LENOOR S/A - Proposta Comercial', 0)
+                    doc.add_heading('LENOOR ME - Proposta Comercial', 0)
                     doc.add_paragraph(f"Número da Proposta: {id_cot}\nData: {data_str}\n\nÀ Empresa: {cliente}\nRef.: Orçamento de fabricação/usinagem de peças.")
-                    doc.add_paragraph("Olá! Agradecemos a oportunidade. Conforme solicitado, submetemos abaixo nossa melhor proposta comercial:")
+                    doc.add_paragraph("Conforme solicitado, submetemos abaixo nossa melhor proposta comercial:")
                     
                     table = doc.add_table(rows=1, cols=5)
                     table.style = 'Table Grid'
@@ -938,13 +944,13 @@ elif opcao_menu == "🛒 5. Cotação Final":
                     for _, row in df_itens.iterrows():
                         row_cells = table.add_row().cells
                         row_cells[0].text, row_cells[1].text, row_cells[2].text = str(row['Código']), str(row['Nome']), str(row['Lote'])
-                        row_cells[3].text, row_cells[4].text = f"R$ {row['Preço de Venda Unitário']:.2f}", f"R$ {row['Total Faturado']:.2f}"
+                        row_cells[3].text, row_cells[4].text = f"R$ {formatar_br(row['Preço de Venda Unitário'])}", f"R$ {formatar_br(row['Total Faturado'])}"
                         
-                    doc.add_paragraph(f"\n💰 Valor Total da Proposta: R$ {total:.2f}")
-                    doc.add_paragraph(f"📦 Peso Estimado da Carga: {peso:.2f} kg\n")
+                    doc.add_paragraph(f"\nValor Total da Proposta: R$ {formatar_br(total)}")
+                    doc.add_paragraph(f"Peso Estimado da Carga: {formatar_br(peso)} kg\n")
                     doc.add_heading('Condições Comerciais', level=2)
                     doc.add_paragraph("• Validade da Proposta: 15 dias a partir desta data.\n• Condição de Pagamento: A combinar.\n• Prazo de Entrega: _____ dias úteis após aprovação.\n• Frete: FOB (Por conta do cliente) / CIF (Por nossa conta).")
-                    doc.add_paragraph("\nAtenciosamente,\nDepartamento Comercial - Lenoor S/A")
+                    doc.add_paragraph("\nAtenciosamente,\nDepartamento Comercial - Lenoor ME")
                     
                     buffer = io.BytesIO()
                     doc.save(buffer)
@@ -980,34 +986,46 @@ elif opcao_menu == "📁 6. Histórico de Cotações":
     else:
         df_historico = pd.read_csv(ARQUIVO_COTACOES)
         
-        st.markdown("#### 🔍 Filtros de Busca")
-        c_filt1, c_filt2 = st.columns(2)
-        with c_filt1:
-            clientes_cot = ["Todos"] + sorted(df_historico["Cliente"].astype(str).unique().tolist())
-            filtro_cliente = st.selectbox("Filtrar por Cliente:", clientes_cot)
-        with c_filt2:
-            ids_cot = ["Todas"] + sorted(df_historico["ID Cotação"].astype(str).unique().tolist(), reverse=True)
-            filtro_id = st.selectbox("Filtrar por Número (ID):", ids_cot)
-            
-        df_filtrado = df_historico.copy()
-        if filtro_cliente != "Todos": df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
-        if filtro_id != "Todas": df_filtrado = df_filtrado[df_filtrado["ID Cotação"] == filtro_id]
+        if "ID Cotação" not in df_historico.columns:
+            st.warning("⚠️ Foi detectado um arquivo de cotações antigo (versão de testes). Para usar a Central de Propostas, por favor, apague o arquivo 'historico_cotacoes_vendas.csv' no seu repositório ou crie uma nova cotação.")
+        else:
+            st.markdown("#### 🔍 Filtros de Busca")
+            c_filt1, c_filt2 = st.columns(2)
+            with c_filt1:
+                clientes_cot = ["Todos"] + sorted(df_historico["Cliente"].dropna().astype(str).unique().tolist())
+                filtro_cliente = st.selectbox("Filtrar por Cliente:", clientes_cot)
+            with c_filt2:
+                ids_cot = ["Todas"] + sorted(df_historico["ID Cotação"].dropna().astype(str).unique().tolist(), reverse=True)
+                filtro_id = st.selectbox("Filtrar por Número (ID):", ids_cot)
+                
+            df_filtrado = df_historico.copy()
+            if filtro_cliente != "Todos": df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
+            if filtro_id != "Todas": df_filtrado = df_filtrado[df_filtrado["ID Cotação"] == filtro_id]
 
-        st.markdown("---")
-        st.markdown("#### 📑 Visão Geral das Propostas")
-        df_master = df_filtrado.groupby(["ID Cotação", "Data", "Cliente"]).agg({"Valor Total Proposta": "max"}).reset_index().sort_values("ID Cotação", ascending=False)
-        st.dataframe(df_master, hide_index=True, use_container_width=True)
-        
-        st.markdown("---")
-        st.markdown("#### 🔍 Detalhes da Cotação")
-        id_selecionado = st.selectbox("Selecione a Cotação para ver os itens:", df_master["ID Cotação"].tolist())
-        
-        if id_selecionado:
-            df_detalhe = df_historico[df_historico["ID Cotação"] == id_selecionado][["Código", "Nome", "Lote", "Preço de Venda Unitário", "Total Faturado"]]
-            st.dataframe(df_detalhe, hide_index=True, use_container_width=True)
+            st.markdown("---")
+            st.markdown("#### 📑 Visão Geral das Propostas")
+            df_master = df_filtrado.groupby(["ID Cotação", "Data", "Cliente"]).agg({"Valor Total Proposta": "max"}).reset_index().sort_values("ID Cotação", ascending=False)
             
-            # Botão Excel da Tela 6
-            buffer_t6 = io.BytesIO()
-            with pd.ExcelWriter(buffer_t6, engine='xlsxwriter') as writer:
-                df_detalhe.to_excel(writer, sheet_name=id_selecionado, index=False)
-            st.download_button("📥 Exportar Itens para Excel (.xlsx)", data=buffer_t6.getvalue(), file_name=f"{id_selecionado}_itens.xlsx", mime="application/vnd.ms-excel")
+            # Formatar tabela mestre
+            df_master_formatado = df_master.copy()
+            df_master_formatado["Valor Total Proposta"] = df_master_formatado["Valor Total Proposta"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.dataframe(df_master_formatado, hide_index=True, use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("#### 🔍 Detalhes da Cotação")
+            id_selecionado = st.selectbox("Selecione a Cotação para ver os itens:", df_master["ID Cotação"].tolist())
+            
+            if id_selecionado:
+                df_detalhe = df_historico[df_historico["ID Cotação"] == id_selecionado][["Código", "Nome", "Lote", "Preço de Venda Unitário", "Total Faturado"]]
+                
+                # Formatar tabela detalhe
+                df_detalhe_formatado = df_detalhe.copy()
+                df_detalhe_formatado["Preço de Venda Unitário"] = df_detalhe_formatado["Preço de Venda Unitário"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                df_detalhe_formatado["Total Faturado"] = df_detalhe_formatado["Total Faturado"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                
+                st.dataframe(df_detalhe_formatado, hide_index=True, use_container_width=True)
+                
+                buffer_t6 = io.BytesIO()
+                with pd.ExcelWriter(buffer_t6, engine='xlsxwriter') as writer:
+                    df_detalhe.to_excel(writer, sheet_name=id_selecionado, index=False)
+                st.download_button("📥 Exportar Itens para Excel (.xlsx)", data=buffer_t6.getvalue(), file_name=f"{id_selecionado}_itens.xlsx", mime="application/vnd.ms-excel")
