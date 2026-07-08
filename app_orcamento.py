@@ -598,7 +598,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
     st.subheader("🔄 Recálculo de Tarifas (Hora-Máquina e Impostos)")
     if not df_init.empty:
         # Filtro Inteligente Único
-        opcoes_motivo = [""] + ["Impostos (Afeta todas as peças)"] + [f"Máquina: {m}" for m in valores_maquinas.keys()]
+        opcoes_motivo = [""] + ["Recálculo Geral (Use para Impostos ou Múltiplas Máquinas)"] + [f"Máquina: {m}" for m in valores_maquinas.keys()]
         motivo_recalc = st.selectbox("Qual tarifa motivou este recálculo?", opcoes_motivo)
         
         if motivo_recalc:
