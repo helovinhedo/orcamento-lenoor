@@ -690,11 +690,12 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
         if codigo_del and st.button(f"Deletar todos os registros de {codigo_del}", type="primary"):
             df_init[df_init["Código da Peça"] != codigo_del].to_csv(ARQUIVO_HISTORICO, index=False)
             st.rerun()
+
 # =============================================================================
 # 🛒 TELA 5: COTAÇÃO FINAL (VENDAS)
 # =============================================================================
 elif opcao_menu == "🛒 5. Cotação Final":
-    st.subheader("🛒 Montador de Cotação (Simulação)")
+    st.subheader("🛒 Mesa de Negociação (Simulador)")
     st.write("Crie propostas comerciais alterando Lotes e Margens livremente. Nada salvo aqui altera a engenharia do sistema.")
 
     if df_init.empty:
@@ -703,7 +704,6 @@ elif opcao_menu == "🛒 5. Cotação Final":
         cliente_cot = st.selectbox("Selecione o Cliente para cotar:", [""] + lista_empresas)
 
         if cliente_cot:
-            # Puxa a última versão de engenharia de cada peça deste cliente
             df_cli = df_init[df_init["Empresa"] == cliente_cot].copy()
             df_cli['_dt'] = pd.to_datetime(df_cli["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
             df_ultimos = df_cli.sort_values("_dt").groupby("Código da Peça").last().reset_index()
@@ -711,16 +711,17 @@ elif opcao_menu == "🛒 5. Cotação Final":
             pecas_selecionadas = st.multiselect("Adicione as peças que o cliente pediu ao carrinho:", options=df_ultimos["Código da Peça"].tolist())
 
             if pecas_selecionadas:
-                st.markdown("### 📝 Mesa de Negociação")
+                st.markdown("### 📝 Carrinho de Vendas")
                 
-                # Desmontando a matemática para achar o Custo de Fábrica UNITÁRIO puro (sem lucro/imposto)
                 dados_carrinho = []
                 for _, row in df_ultimos[df_ultimos["Código da Peça"].isin(pecas_selecionadas)].iterrows():
                     r = row.to_dict()
                     lote_original = max(1, safe_int(r.get("Lote", 100)))
 
+                    # Descobre o custo unitário e peso unitário da engenharia
                     custo_mat_unit = safe_float(r.get("Custo Material (R$)")) / lote_original
                     custo_trat_unit = safe_float(r.get("Custo Tratamento (R$)")) / lote_original
+                    peso_unit = safe_float(r.get("Total Kg Lote")) / lote_original
 
                     roteiro_raw = r.get("Usinagem_JSON", "[]")
                     roteiro = json.loads(roteiro_raw) if isinstance(roteiro_raw, str) else []
@@ -731,7 +732,7 @@ elif opcao_menu == "🛒 5. Cotação Final":
                             pcs_h = max(0.1, safe_float(op.get("Peças por Hora"), 50.0))
                             maq_nome = safe_str(op.get("Máquina"), "Outro")
                             taxa_hora = safe_float(op.get("Preço/Hora_Aplicado", st.session_state.valores_maquinas.get(maq_nome, 120.0)))
-                            custo_usi_unit += (1 / pcs_h) * taxa_hora  # Custo de 1 peça nesta máquina
+                            custo_usi_unit += (1 / pcs_h) * taxa_hora
 
                     custo_fabrica_unit = custo_mat_unit + custo_trat_unit + custo_usi_unit
 
@@ -739,14 +740,14 @@ elif opcao_menu == "🛒 5. Cotação Final":
                         "Código da Peça": r["Código da Peça"],
                         "Nome": safe_str(r.get("Nome da Peça", "")),
                         "Custo Fáb. Unit (R$)": custo_fabrica_unit,
+                        "Peso Unit. (Kg)": peso_unit,
                         "Lote Cotado": lote_original,
                         "Margem de Lucro (%)": safe_float(r.get("Margem Lucro (%)", 30))
                     })
 
                 df_base_cotacao = pd.DataFrame(dados_carrinho)
 
-                # A Tabela Interativa de Vendas
-                st.info("💡 Fique à vontade para editar as colunas 'Lote Cotado' e 'Margem de Lucro (%)'.")
+                st.info("💡 Fique à vontade para editar as colunas 'Lote Cotado' e 'Margem de Lucro (%)' para dar descontos.")
                 df_editado = st.data_editor(
                     df_base_cotacao,
                     hide_index=True, use_container_width=True,
@@ -754,29 +755,30 @@ elif opcao_menu == "🛒 5. Cotação Final":
                         "Código da Peça": st.column_config.TextColumn(disabled=True),
                         "Nome": st.column_config.TextColumn(disabled=True),
                         "Custo Fáb. Unit (R$)": st.column_config.NumberColumn(format="R$ %.2f", disabled=True),
+                        "Peso Unit. (Kg)": st.column_config.NumberColumn(format="%.3f kg", disabled=True),
                         "Lote Cotado": st.column_config.NumberColumn(min_value=1, step=1),
-                        "Margem de Lucro (%)": st.column_config.NumberColumn(min_value=5.0, max_value=95.0, step=1.0)
+                        "Margem de Lucro (%)": st.column_config.NumberColumn(min_value=1.0, max_value=99.0, step=1.0)
                     }
                 )
 
-                # Motor de Recálculo Instantâneo da Venda
+                # --- MOTOR DE RECÁLCULO DE VENDAS ---
                 total_imposto_pct = safe_float(st.session_state.impostos.get("IR")) + safe_float(st.session_state.impostos.get("FS"))
 
-                valor_total_cotacao = 0.0
-                imposto_total_cotacao = 0.0
-                custo_total_cotacao = 0.0
+                valor_total_cotacao, imposto_total_cotacao, custo_total_cotacao, peso_total_cotacao = 0.0, 0.0, 0.0, 0.0
                 resultados_visuais = []
 
                 for _, row in df_editado.iterrows():
                     lote = safe_int(row["Lote Cotado"])
                     margem = safe_float(row["Margem de Lucro (%)"])
                     custo_unit = safe_float(row["Custo Fáb. Unit (R$)"])
+                    
+                    peso_total_cotacao += safe_float(row["Peso Unit. (Kg)"]) * lote
 
-                    # Refazendo a matemática do zero para o lote simulado
                     custo_bruto_lote = custo_unit * lote
-                    fator_lucro = max(0.05, (1 - (margem / 100)))
+                    fator_lucro = max(0.01, (1 - (margem / 100)))
                     valor_sem_imposto = custo_bruto_lote / fator_lucro
                     imposto_reais = valor_sem_imposto * (total_imposto_pct / 100)
+                    
                     preco_lote_final = valor_sem_imposto + imposto_reais
                     preco_unit_final = preco_lote_final / lote
 
@@ -789,23 +791,48 @@ elif opcao_menu == "🛒 5. Cotação Final":
                         "Nome": row["Nome"],
                         "Lote": lote,
                         "Preço Unitário": f"R$ {preco_unit_final:.2f}",
-                        "Preço Total Lote": f"R$ {preco_lote_final:.2f}"
+                        "Preço Total": f"R$ {preco_lote_final:.2f}"
                     })
 
-                # Painel Executivo
+                lucro_bruto_reais = valor_total_cotacao - custo_total_cotacao
+                lucro_real_reais = lucro_bruto_reais - imposto_total_cotacao
+                
+                margem_bruta_pct = (lucro_bruto_reais / valor_total_cotacao * 100) if valor_total_cotacao > 0 else 0
+                margem_real_pct = (lucro_real_reais / valor_total_cotacao * 100) if valor_total_cotacao > 0 else 0
+
+                # --- PAINEL EXECUTIVO ---
                 st.markdown("---")
-                st.markdown("### 📊 Painel Executivo da Cotação")
+                st.markdown("### 📊 Raio-X da Negociação")
                 
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Valor Total a Faturar", f"R$ {valor_total_cotacao:.2f}")
-                c2.metric("Custo Total de Fábrica", f"R$ {custo_total_cotacao:.2f}")
-                c3.metric("Lucro Bruto Projetado", f"R$ {valor_total_cotacao - custo_total_cotacao - imposto_total_cotacao:.2f}")
-                c4.metric(f"Guia de Impostos ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
+                c1.metric("1. Faturamento Total", f"R$ {valor_total_cotacao:.2f}")
+                c2.metric("2. Custo de Fábrica", f"R$ {custo_total_cotacao:.2f}")
+                c3.metric(f"3. Guias de Imposto ({total_imposto_pct}%)", f"R$ {imposto_total_cotacao:.2f}")
+                c4.metric("4. Lucro Livre (Real)", f"R$ {lucro_real_reais:.2f}")
 
-                # Tabela Limpa para o Cliente
-                st.markdown("#### 📋 Espelho para o Cliente")
-                df_resumo = pd.DataFrame(resultados_visuais)
-                st.dataframe(df_resumo, hide_index=True, use_container_width=True)
+                st.markdown("#### 🩺 Indicadores de Saúde e Logística")
+                c5, c6, c7, c8 = st.columns(4)
+                c5.metric("Margem Bruta", f"{margem_bruta_pct:.1f} %", help="Lucro antes de descontar os impostos.")
+                c6.metric("Margem Líquida/Real", f"{margem_real_pct:.1f} %", help="Sua margem de lucro real e final.")
+                c7.metric("Peso Total Estimado", f"{peso_total_cotacao:.2f} kg", help="Útil para cálculo de frete da transportadora.")
+                c8.write("") # Espaço vazio para alinhar
 
-                csv_cotacao = df_resumo.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Baixar Tabela para Envio (Excel/CSV)", data=csv_cotacao, file_name=f"cotacao_{cliente_cot}.csv", mime="text/csv")
+                # --- ESPELHO PARA O CLIENTE ---
+                st.markdown("---")
+                st.markdown("### 📱 Proposta Pronta para Envio")
+                st.write("Copie o texto abaixo e cole diretamente no WhatsApp ou E-mail do cliente:")
+                
+                # Montando o texto formatado dinamicamente
+                texto_zap = f"Olá! Segue a cotação solicitada para a *{cliente_cot}*:\n\n"
+                for item in resultados_visuais:
+                    texto_zap += f"🔸 *Item:* {item['Código']} - {item['Nome']}\n"
+                    texto_zap += f"   *Quantidade:* {item['Lote']} peças\n"
+                    texto_zap += f"   *Preço Unitário:* {item['Preço Unitário']}\n"
+                    texto_zap += f"   *Total do Item:* {item['Preço Total']}\n\n"
+                
+                texto_zap += f"💰 *Valor Total da Proposta:* R$ {valor_total_cotacao:.2f}\n"
+                texto_zap += f"📦 *Peso Total Estimado:* {peso_total_cotacao:.2f} kg\n"
+                texto_zap += f"\nFicamos à disposição para fechamento!"
+
+                # A mágica do Streamlit: caixa de código com botão nativo de cópia!
+                st.code(texto_zap, language="markdown")
