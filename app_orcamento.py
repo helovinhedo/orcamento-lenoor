@@ -185,7 +185,7 @@ opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
 # A Cereja do Bolo: Versão no Menu Lateral
 st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor S/A v4.0 - Arquitetura Final")
+st.sidebar.caption("Lenoor v4.5 - Vendas e Analytics")
 
 # Limpa mensagens ao mudar de tela
 if opcao_menu != st.session_state.menu_anterior:
@@ -464,10 +464,20 @@ elif opcao_menu == "📜 2. Histórico de Peças":
         for c in cols: 
             if c not in df_ord.columns: df_ord[c] = "N/A"
         
-        if "Completo" in opcao_visao: st.dataframe(df_ord[cols].iloc[::-1], use_container_width=True)
-        else:
-            df_ult = df_ord.groupby("Código da Peça").last().reset_index().sort_values("Empresa")
-            st.dataframe(df_ult[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"]], use_container_width=True)
+        if "Completo" in opcao_visao: 
+                    df_exibir_t2 = df_ord[cols].iloc[::-1]
+                else:
+                    df_ult = df_ord.groupby("Código da Peça").last().reset_index().sort_values("Empresa")
+                    df_exibir_t2 = df_ult[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"]]
+                    
+                st.dataframe(df_exibir_t2, use_container_width=True)
+                
+                # Botão Excel da Tela 2
+                buffer_t2 = io.BytesIO()
+                with pd.ExcelWriter(buffer_t2, engine='xlsxwriter') as writer:
+                    df_exibir_t2.to_excel(writer, sheet_name='Historico_Pecas', index=False)
+                
+                st.download_button("📥 Exportar Tabela para Excel (.xlsx)", data=buffer_t2.getvalue(), file_name="historico_pecas_lenoor.xlsx", mime="application/vnd.ms-excel")
 
 # =============================================================================
 # 🧱 TELA 3: MATÉRIA-PRIMA E RECÁLCULO INTELIGENTE
@@ -564,9 +574,12 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
                     st.markdown("#### Lista de Alterações")
                     st.dataframe(df_filtrado_graf.iloc[::-1], hide_index=True, use_container_width=True)
                     
-                    # Botão para baixar a planilha limpa em CSV do histórico de compras se precisar
-                    csv_aud = df_filtrado_graf.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Baixar Histórico deste Material", data=csv_aud, file_name=f"historico_precos_{mat_grafico}.csv", mime="text/csv")
+                    # Botão para baixar a planilha Excel do histórico de compras
+                    buffer_mp = io.BytesIO()
+                    with pd.ExcelWriter(buffer_mp, engine='xlsxwriter') as writer:
+                        df_filtrado_graf.to_excel(writer, sheet_name='Historico_MP', index=False)
+                    
+                    st.download_button("📥 Baixar Histórico (.xlsx)", data=buffer_mp.getvalue(), file_name=f"historico_precos_{mat_grafico}.xlsx", mime="application/vnd.ms-excel")
             except:
                 st.error("Erro ao carregar o arquivo de histórico de compras de MP.")
             
@@ -953,3 +966,28 @@ elif opcao_menu == "🛒 5. Cotação Final":
                         file_name=f"Cotacao_{cliente_cot}_{datetime.now().strftime('%d%m%Y')}.xlsx",
                         mime="application/vnd.ms-excel"
                     )
+# =============================================================================
+# 📂 CONSULTA DE COTAÇÕES SALVAS (FICA NO FINAL DA TELA 5)
+# =============================================================================
+st.markdown("---")
+with st.expander("📂 Consultar Histórico de Cotações Salvas"):
+    ARQUIVO_COTACOES = "historico_cotacoes_vendas.csv"
+    if not os.path.exists(ARQUIVO_COTACOES):
+        st.info("Nenhuma cotação foi salva no sistema ainda.")
+    else:
+        try:
+            df_historico_cot = pd.read_csv(ARQUIVO_COTACOES)
+            
+            # Exibe a tabela invertida (mais recentes primeiro)
+            st.dataframe(df_historico_cot.iloc[::-1], hide_index=True, use_container_width=True)
+            
+            # Botão de Excel para a base completa de cotações
+            buffer_cot = io.BytesIO()
+            with pd.ExcelWriter(buffer_cot, engine='xlsxwriter') as writer:
+                df_historico_cot.to_excel(writer, sheet_name='Cotações Salvas', index=False)
+            
+            st.download_button("📥 Exportar Todo o Histórico de Cotações (.xlsx)", data=buffer_cot.getvalue(), file_name="historico_cotacoes_completo.xlsx", mime="application/vnd.ms-excel")
+        except Exception as e:
+            st.error(f"Erro ao carregar o histórico: {e}")                        
+                    
+                    
