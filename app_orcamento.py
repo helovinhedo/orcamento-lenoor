@@ -488,25 +488,41 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
                     novas_linhas = []
                     novo_preco_mp = materiais[liga_recalc]['preco_atual']
                     
-                    for _, row in df_afetados[df_afetados["Código da Peça"].isin(codigos_selecionados)].iterrows():
+                for _, row in df_afetados[df_afetados["Código da Peça"].isin(codigos_selecionados)].iterrows():
                         row_dict = row.to_dict()
-                        # Atualiza MP
-                        row_dict["Preço MP Unitário"] = novo_preco_mp
-                        row_dict["Custo Material (R$)"] = round(safe_float(row_dict["Total Kg Lote"]) * novo_preco_mp, 2)
                         
-                        # Recalcula Matemática Mantendo Usinagem e Tratamento Intactos
-                        custo_bruto = row_dict["Custo Material (R$)"] + safe_float(row_dict["Custo Usinagem (R$)"], 0.0) + safe_float(row_dict["Custo Tratamento (R$)"])
+                        # 1. Atualiza MP com segurança
+                        row_dict["Preço MP Unitário"] = novo_preco_mp
+                        row_dict["Custo Material (R$)"] = round(safe_float(row_dict.get("Total Kg Lote", 0.0)) * novo_preco_mp, 2)
+                        
+                        # 2. Reconstrói custo de Usinagem extraindo do JSON salvo
+                        roteiro_raw = row_dict.get("Usinagem_JSON", "[]")
+                        roteiro = json.loads(roteiro_raw) if isinstance(roteiro_raw, str) else []
+                        custo_usinagem_antigo = 0.0
+                        lote_val = max(1, safe_int(row_dict.get("Lote", 100)))
+                        
+                        if isinstance(roteiro, list):
+                            for op in roteiro:
+                                pcs_h = max(0.1, safe_float(op.get("Peças por Hora"), 50.0))
+                                maq_nome = safe_str(op.get("Máquina"), "Outro")
+                                taxa_hora = safe_float(op.get("Preço/Hora_Aplicado", valores_maquinas.get(maq_nome, 120.0)))
+                                custo_usinagem_antigo += (lote_val / pcs_h) * taxa_hora
+                        
+                        # 3. Recalcula Matemática Geral (Usando o custo reconstruído e .get() para segurança)
+                        custo_bruto = row_dict["Custo Material (R$)"] + custo_usinagem_antigo + safe_float(row_dict.get("Custo Tratamento (R$)"))
                         fator_l = max(0.05, (1 - (safe_float(row_dict.get("Margem Lucro (%)", 30)) / 100)))
                         valor_venda = custo_bruto / fator_l
                         imp_pct = safe_float(impostos.get("IR")) + safe_float(impostos.get("FS"))
                         preco_final = valor_venda + (valor_venda * (imp_pct / 100))
                         
                         row_dict["Preço Total Lote (R$)"] = round(preco_final, 2)
-                        lote_val = max(1, safe_int(row_dict["Lote"]))
                         row_dict["Preço Unitário (R$)"] = round(preco_final / lote_val, 2)
                         row_dict["Origem/Alteração"] = "Recálculo de MP"
                         row_dict["Data/Hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+                        
+                        # Limpa chaves temporárias para não sujar o CSV
                         if "Recalcular" in row_dict: del row_dict["Recalcular"]
+                        if "_dt_temp" in row_dict: del row_dict["_dt_temp"]
                         
                         novas_linhas.append(row_dict)
                         
