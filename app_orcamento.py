@@ -472,17 +472,51 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
         novos_materiais = {}
         mudancas = False
         hoje = datetime.now().strftime("%d/%m/%Y")
+        
+        # Arquivo separado para o histórico de auditoria de compras de MP
+        ARQUIVO_AUDITORIA_MP = "historico_compras_mp.csv"
+        registros_auditoria = []
+
         for _, row in df_mat_edit.iterrows():
             liga = row["Liga"]
             preco_novo = float(row["Preço Atual (R$/Kg)"])
             preco_antigo = materiais[liga]["preco_atual"]
-            if preco_novo != preco_antigo: mudancas = True
-            novos_materiais[liga] = {"constante": float(row["constante"]), "preco_atual": preco_novo, "data_cotacao": hoje if preco_novo != preco_antigo else materiais[liga]["data_cotacao"]}
+            
+            if preco_novo != preco_antigo: 
+                mudancas = True
+                # Se mudou, cria o registro para o arquivo apartado
+                registros_auditoria.append({
+                    "Data Alteração": hoje,
+                    "Liga/Material": liga,
+                    "Preço Antigo (R$)": preco_antigo,
+                    "Preço Novo (R$)": preco_novo
+                })
+                
+            novos_materiais[liga] = {
+                "constante": float(row["constante"]), 
+                "preco_atual": preco_novo, 
+                "data_cotacao": hoje if preco_novo != preco_antigo else materiais[liga]["data_cotacao"]
+            }
             
         if mudancas:
+            # 1. Salva a configuração atual de trabalho
             st.session_state.materiais = novos_materiais
             salvar_config_permanente(valores_maquinas, impostos, novos_materiais)
-            st.toast("✅ Preços atualizados!")
+            
+            # 2. Salva o registro no arquivo apartado de histórico de compras
+            if registros_auditoria:
+                df_auditoria_novo = pd.DataFrame(registros_auditoria)
+                if os.path.exists(ARQUIVO_AUDITORIA_MP):
+                    try:
+                        df_auditoria_antigo = pd.read_csv(ARQUIVO_AUDITORIA_MP)
+                        df_auditoria_final = pd.concat([df_auditoria_antigo, df_auditoria_novo], ignore_index=True)
+                    except:
+                        df_auditoria_final = df_auditoria_novo
+                else:
+                    df_auditoria_final = df_auditoria_novo
+                df_auditoria_final.to_csv(ARQUIVO_AUDITORIA_MP, index=False)
+                
+            st.toast("✅ Preços atualizados e registrados no histórico de compras!")
             st.rerun()
             
     st.markdown("---")
