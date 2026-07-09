@@ -5,6 +5,8 @@ from docx import Document
 import json
 import os
 import io
+import gspread
+from google.oauth2.service_account import Credentials
 
 # =============================================================================
 # 🧱 1. CONFIGURAÇÕES INICIAIS E FUNÇÕES UTILITÁRIAS DE SEGURANÇA
@@ -13,6 +15,7 @@ st.set_page_config(page_title="Sistema Lenoor - Orçamentos", page_icon="⚙️"
 
 ARQUIVO_HISTORICO = "historico_orcamentos_estruturado.csv"
 ARQUIVO_CONFIG = "config_lenoor.json"
+ID_PLANILHA = "1QrYGJCY-NwsRnMgOe1eugQmssu3mYsIc7wMxBT2oBSk"
 
 DEFAULTS_MATERIAIS = {
     "aço sx": {"constante": 0.68, "preco_atual": 0.0, "data_cotacao": ""}, 
@@ -69,14 +72,51 @@ def salvar_config_permanente(maquinas, impostos, materiais):
     except Exception as e:
         st.error(f"Erro ao salvar config: {e}")
 
+def conectar_sheets():
+    # Conecta com a biblioteca utilizando as credenciais salvas em Secrets
+    scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    return client
+
+# Substitua a sua função antiga ler_historico_seguro por esta:
 def ler_historico_seguro():
-    if not os.path.exists(ARQUIVO_HISTORICO): return pd.DataFrame(columns=COLUNAS_PADRAO)
     try:
-        df = pd.read_csv(ARQUIVO_HISTORICO)
+        client = conectar_sheets()
+        sh = client.open_by_key(ID_PLANILHA)
+        worksheet = sh.worksheet("Historico")
+        dados = worksheet.get_all_records()
+        
+        if not dados:
+            return pd.DataFrame(columns=COLUNAS_PADRAO)
+            
+        df = pd.DataFrame(dados)
+        # Garante compatibilidade de colunas padrão
         for col in COLUNAS_PADRAO:
-            if col not in df.columns: df[col] = None
+            if col not in df.columns: 
+                df[col] = None
         return df
-    except: return pd.DataFrame(columns=COLUNAS_PADRAO)
+    except Exception as e:
+        # Retorna dataframe vazio caso a planilha esteja sem registros
+        return pd.DataFrame(columns=COLUNAS_PADRAO)
+
+# Nova função para persistir os dados no Google Sheets de forma limpa
+def salvar_historico_seguro(df):
+    try:
+        client = conectar_sheets()
+        sh = client.open_by_key(ID_PLANILHA)
+        worksheet = sh.worksheet("Historico")
+        worksheet.clear()
+        
+        # Converte o DataFrame para lista de listas mantendo o cabeçalho
+        lista_dados = [df.columns.values.tolist()] + df.fillna("").values.tolist()
+        worksheet.update(lista_dados)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar na planilha: {e}")
+        return False
+        
 
 # =============================================================================
 # 🧠 2. INICIALIZAÇÃO BLINDADA DO COFRE (SESSION STATE)
