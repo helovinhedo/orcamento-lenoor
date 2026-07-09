@@ -80,7 +80,6 @@ def conectar_sheets():
     client = gspread.authorize(creds)
     return client
 
-# Substitua a sua função antiga ler_historico_seguro por esta:
 def ler_historico_seguro():
     try:
         client = conectar_sheets()
@@ -98,7 +97,8 @@ def ler_historico_seguro():
                 df[col] = None
         return df
     except Exception as e:
-        # Retorna dataframe vazio caso a planilha esteja sem registros
+        # AGORA EXIBE O ERRO REAL NA TELA (Ex: credenciais erradas, ID incorreto ou falta de compartilhamento)
+        st.error(f"⚠️ Erro ao ler a planilha no Google Sheets: {e}")
         return pd.DataFrame(columns=COLUNAS_PADRAO)
 
 # Nova função para persistir os dados no Google Sheets de forma limpa
@@ -111,10 +111,12 @@ def salvar_historico_seguro(df):
         
         # Converte o DataFrame para lista de listas mantendo o cabeçalho
         lista_dados = [df.columns.values.tolist()] + df.fillna("").values.tolist()
-        worksheet.update(lista_dados)
+        
+        # CORREÇÃO DE SEGURANÇA: Passando argumentos nomeados para funcionar em gspread v5 e v6
+        worksheet.update(range_name="A1", values=lista_dados)
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar na planilha: {e}")
+        st.error(f"❌ Erro ao salvar dados na planilha do Google: {e}")
         return False
         
 
@@ -449,12 +451,13 @@ if opcao_menu == "📊 1. Novo Orçamento":
                 "Tratamento_JSON": df_trat_input.to_json(orient='records')
             }
             df_final = pd.concat([df_init, pd.DataFrame([novo_registro])], ignore_index=True) if not df_init.empty else pd.DataFrame([novo_registro])
-            salvar_historico_seguro(df_final)
-
             
-            limpar_formulario_orcamento()
-            st.session_state["msg_sucesso_aba1"] = f"✅ Orçamento da peça '{codigo_peca}' gravado com sucesso!"
-            st.rerun()
+            # Só limpa o formulário e recarrega a página se o salvamento der certo!
+            sucesso = salvar_historico_seguro(df_final)
+            if sucesso:
+                limpar_formulario_orcamento()
+                st.session_state["msg_sucesso_aba1"] = f"✅ Orçamento da peça '{codigo_peca}' gravado com sucesso!"
+                st.rerun()
 
     if st.session_state.get("msg_sucesso_aba1"):
         st.success(st.session_state["msg_sucesso_aba1"])
