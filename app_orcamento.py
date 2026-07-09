@@ -65,7 +65,6 @@ def conectar_sheets():
     client = gspread.authorize(creds)
     return client
 
-# Função unificada e genérica para leitura de abas do Google Sheets
 def ler_aba_sheets(nome_aba, colunas_padrao):
     try:
         client = conectar_sheets()
@@ -83,7 +82,6 @@ def ler_aba_sheets(nome_aba, colunas_padrao):
         st.error(f"⚠️ Erro ao ler a aba '{nome_aba}' no Google Sheets: {e}")
         return pd.DataFrame(columns=colunas_padrao)
 
-# Função unificada para gravação de abas do Google Sheets com parser regional
 def salvar_aba_sheets(df, nome_aba):
     try:
         client = conectar_sheets()
@@ -91,20 +89,17 @@ def salvar_aba_sheets(df, nome_aba):
         worksheet = sh.worksheet(nome_aba)
         worksheet.clear()
         lista_dados = [df.columns.values.tolist()] + df.fillna("").values.tolist()
-        # USER_ENTERED faz o Google interpretar strings numéricas como floats nativos do Sheets
         worksheet.update(range_name="A1", values=lista_dados, value_input_option="USER_ENTERED")
         return True
     except Exception as e:
         st.error(f"❌ Erro ao salvar dados na aba '{nome_aba}' do Google Sheets: {e}")
         return False
 
-# Inicializador inteligente e persistente das tabelas de configuração em nuvem
 def carregar_config_nuvem():
     try:
         client = conectar_sheets()
         sh = client.open_by_key(ID_PLANILHA)
         
-        # 1. Configurações de Máquinas e Impostos
         try:
             wks_maq = sh.worksheet("Config_Maquinas")
             dados_maq = wks_maq.get_all_records()
@@ -127,7 +122,6 @@ def carregar_config_nuvem():
                 if "Imposto" in tipo: impostos[nome] = valor
                 else: valores_maquinas[nome] = valor
 
-        # 2. Configurações de Materiais
         try:
             wks_mat = sh.worksheet("Config_Materiais")
             dados_mat = wks_mat.get_all_records()
@@ -141,13 +135,14 @@ def carregar_config_nuvem():
             salvar_aba_sheets(df_mt, "Config_Materiais")
             materiais = DEFAULTS_MATERIAIS.copy()
         else:
-            materiais = {}
+            materials = {}
             for r in dados_mat:
                 liga = safe_str(r.get("Liga"))
                 constante_val = safe_float(r.get("Constante")) if r.get("Constante") is not None else safe_float(r.get("constante"))
                 preco_val = safe_float(r.get("Preço Atual (R$/Kg)")) if r.get("Preço Atual (R$/Kg)") is not None else safe_float(r.get("preco_atual"))
                 data_val = safe_str(r.get("Data da Cotação")) if r.get("Data da Cotação") is not None else safe_str(r.get("data_cotacao"))
-                materiais[liga] = {"constante": constante_val, "preco_atual": preco_val, "data_cotacao": data_val}
+                materials[liga] = {"constante": constante_val, "preco_atual": preco_val, "data_cotacao": data_val}
+            materiais = materials
                 
         return {"valores_maquinas": valores_maquinas, "impostos": impostos, "materiais": materiais}
     except Exception as e:
@@ -155,13 +150,9 @@ def carregar_config_nuvem():
         return {"valores_maquinas": DEFAULTS_MAQUINAS, "impostos": DEFAULTS_IMPOSTOS, "materiais": DEFAULTS_MATERIAIS}
 
 # =============================================================================
-# 🧠 2. INICIALIZAÇÃO BLINDADA DO COFRE (SESSION STATE)
+# 🧠 2. INICIALIZAÇÃO BLINDADA DO COFRE (SESSION STATE - MEMÓRIA LOCAL CONTRA 429)
 # =============================================================================
-config_carregada = carregar_config_nuvem()
-if "valores_maquinas" not in st.session_state: st.session_state.valores_maquinas = config_carregada["valores_maquinas"]
-if "impostos" not in st.session_state: st.session_state.impostos = config_carregada["impostos"]
-if "materiais" not in st.session_state: st.session_state.materiais = config_carregada["materiais"]
-
+# Inicialização primária de Widgets para extinguir em definitivo os KeyErrors
 valores_padrao_widgets = {
     "sel_empresa_aba1": "", "txt_comprador": "", "sel_codigo_peca": "", "txt_nome_peca": "",
     "txt_novo_codigo": "", "txt_nova_empresa": "",
@@ -176,7 +167,6 @@ for chave, val in valores_padrao_widgets.items():
 if "menu_anterior" not in st.session_state: st.session_state.menu_anterior = ""
 if "editor_version" not in st.session_state: st.session_state.editor_version = 0  
 if "taxas_original_msg" not in st.session_state: st.session_state["taxas_original_msg"] = ""
-
 if "msg_sucesso_aba1" not in st.session_state: st.session_state["msg_sucesso_aba1"] = ""
 if "msg_sucesso_aba3" not in st.session_state: st.session_state["msg_sucesso_aba3"] = ""
 if "msg_sucesso_aba4" not in st.session_state: st.session_state["msg_sucesso_aba4"] = ""
@@ -186,6 +176,15 @@ if "df_usinagem_v3" not in st.session_state:
 if "df_tratamento_v3" not in st.session_state:
     st.session_state["df_tratamento_v3"] = pd.DataFrame([{"Tratamento": "Nenhum / Sem Tratamento", "Preço por Kg (R$)": 0.0}])
 
+# CARREGAMENTO EM CACHE LOCAL: Só lê as tabelas do Google uma única vez!
+if "db_historico" not in st.session_state or "db_cotacoes" not in st.session_state:
+    st.session_state["db_historico"] = ler_aba_sheets("Historico", COLUNAS_PADRAO)
+    st.session_state["db_cotacoes"] = ler_aba_sheets("Historico_Cotacoes", COLUNAS_COTACOES)
+    config_carregada = carregar_config_nuvem()
+    st.session_state.valores_maquinas = config_carregada["valores_maquinas"]
+    st.session_state.impostos = config_carregada["impostos"]
+    st.session_state.materiais = config_carregada["materiais"]
+
 def limpar_formulario_orcamento():
     for k, v in valores_padrao_widgets.items(): st.session_state[k] = v
     st.session_state["df_usinagem_v3"] = pd.DataFrame([{"Operação": "Tornear", "Máquina": "Torno Automático", "Peças por Hora": 50.0}])
@@ -193,8 +192,8 @@ def limpar_formulario_orcamento():
     st.session_state["taxas_original_msg"] = ""
     st.session_state.editor_version += 1
 
-# Inicialização de dados vindos da Nuvem
-df_init = ler_aba_sheets("Historico", COLUNAS_PADRAO)
+# Referencia as variáveis locais em memória RAM (Adeus lentidão e erro 429)
+df_init = st.session_state["db_historico"]
 lista_empresas = sorted(df_init["Empresa"].dropna().astype(str).unique().tolist()) if not df_init.empty else []
 empresa_atual = st.session_state.get("sel_empresa_aba1", "")
 if empresa_atual and empresa_atual != "➕ Novo Cliente...":
@@ -206,7 +205,7 @@ def carregar_roteiro_antigo_callback():
     codigo_target = st.session_state.get("sel_codigo_peca", "")
     if codigo_target and codigo_target != "➕ Novo Código...":
         try:
-            df_hist = ler_aba_sheets("Historico", COLUNAS_PADRAO)
+            df_hist = st.session_state["db_historico"]
             df_filtrado = df_hist[df_hist["Código da Peça"] == codigo_target].copy()
             if not df_filtrado.empty:
                 df_filtrado['_dt_temp'] = pd.to_datetime(df_filtrado["Data/Hora"], format="%d/%m/%Y %H:%M", errors='coerce')
@@ -248,6 +247,7 @@ def carregar_roteiro_antigo_callback():
                 st.session_state.editor_version += 1
         except Exception as e: st.toast(f"Erro no autocomplete: {e}", icon="⚠️")
 
+# Atribuição local rápida das tabelas de custos
 valores_maquinas = st.session_state.valores_maquinas
 impostos = st.session_state.impostos
 materiais = st.session_state.materiais
@@ -259,8 +259,16 @@ st.sidebar.title("🧭 Menu Lenoor")
 opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Matéria-Prima", "⚙️ 4. Custos Fixos & BD", "🛒 5. Cotação Final", "📁 6. Histórico de Cotações"]
 opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
-st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor v4.7 - Google Cloud Core")
+# Botão mestre de atualização manual para caso altere algo externo no Sheets celular
+if st.sidebar.button("🔄 Forçar Sincronização Google Sheets", use_container_width=True):
+    st.session_state["db_historico"] = ler_aba_sheets("Historico", COLUNAS_PADRAO)
+    st.session_state["db_cotacoes"] = ler_aba_sheets("Historico_Cotacoes", COLUNAS_COTACOES)
+    config_carregada = carregar_config_nuvem()
+    st.session_state.valores_maquinas = config_carregada["valores_maquinas"]
+    st.session_state.impostos = config_carregada["impostos"]
+    st.session_state.materiais = config_carregada["materiais"]
+    st.toast("⚡ Planilhas sincronizadas com sucesso!", icon="📥")
+    st.rerun()
 
 if opcao_menu != st.session_state.menu_anterior:
     st.session_state["taxas_original_msg"] = ""
@@ -286,8 +294,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         empresa_sel = st.selectbox("Empresa/Cliente", opces_empresa, key="sel_empresa_aba1")
         
         if empresa_sel == "➕ Novo Cliente...":
-            nova_emp = st.text_input("Novo Cliente", placeholder="Ex: TS", key="txt_nova_empresa").strip()
-            empresa = nova_emp
+            empresa = st.text_input("Novo Cliente", placeholder="Ex: TS", key="txt_nova_empresa").strip()
         else:
             empresa = empresa_sel
             
@@ -304,8 +311,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         codigo_sel = st.selectbox("Código da Peça", opcoes_codigo, key="sel_codigo_peca")
         
         if codigo_sel == "➕ Novo Código...":
-            novo_cod = st.text_input("Novo Código:", placeholder="Ex: CH-0002", key="txt_novo_codigo").strip()
-            codigo_peca = novo_cod
+            codigo_peca = st.text_input("Novo Código:", placeholder="Ex: CH-0002", key="txt_novo_codigo").strip()
         else:
             codigo_peca = codigo_sel
 
@@ -349,7 +355,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
             
             if "Maciça" in tipo_mp:
                 with col_mat3:
-                    diametro = st.number_input("Diâmetro (mm)", min_value=0.0, step=0.1, key="num_diam_barra")
+                    diametro = st.number_input("Diâmetro da Barra (mm)", min_value=0.0, step=0.1, key="num_diam_barra")
                 peso_por_metro = ((diametro ** 2) * constante) / 100
             else:
                 with col_mat3:
@@ -439,7 +445,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
     c1.metric("Custo de Fábrica", f"R$ {custo_bruto:.2f}")
     c2.metric("Lucro Bruto", f"R$ {valor_venda_bruto - custo_bruto:.2f}")
     c3.metric(f"Impostos ({total_imposto_pct}%)", f"R$ {valor_impostos:.2f}")
-    c4.metric("Preço UNITÁRIO", f"R$ {preco_lote / lote if lote > 0 else 0.0:.2f}")
+    c4.metric("Preço UNITÁRIO Final", f"R$ {preco_lote / lote if lote > 0 else 0.0:.2f}")
 
     if st.button("💾 Gravar no Histórico", type="primary"):
         if not codigo_peca or codigo_peca == "➕ Novo Código...":
@@ -464,18 +470,18 @@ if opcao_menu == "📊 1. Novo Orçamento":
             
             sucesso = salvar_aba_sheets(df_final, "Historico")
             if sucesso:
+                st.session_state["db_historico"] = df_final  # Atualiza cache local instantaneamente
                 limpar_formulario_orcamento()
                 st.session_state["msg_sucesso_aba1"] = f"✅ Orçamento da peça '{codigo_peca}' gravado com sucesso!"
                 st.rerun()
 
-    # AJUSTE DE FLUXO: Mensagem agora renderiza exatamente embaixo do gatilho de gravação
+    # CORREÇÃO DE FLUXO VISUAL: O aviso verde agora brota exatamente embaixo do botão de clique
     if st.session_state.get("msg_sucesso_aba1"):
         st.success(st.session_state["msg_sucesso_aba1"])
         st.session_state["msg_sucesso_aba1"] = ""
 
     st.markdown("---")
     with st.expander("❓ Entenda os Cálculos do Sistema (Fórmulas e Regras)"):
-        st.markdown("Este sistema foi desenhado com engenharia de custos precisa. Abaixo estão as fórmulas matemáticas abertas para fins de auditoria e governança:")
         st.markdown("#### 🧱 1. Cálculo de Tubos e Buchas")
         st.latex(r"Peso/Metro = \frac{(D_{ext}^2 - D_{int}^2) \times Constante\_da\_Liga}{100}")
         st.markdown("#### 🔨 2. Custo de Usinagem")
@@ -484,7 +490,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         st.latex(r"Faturamento\_Bruto = \frac{Custo\_de\_F\acute{a}brica}{1 - \left( \frac{Margem\%}{100} \right)}")
 
 # =============================================================================
-# 📜 TELA 2: HISTÓRICO COM FILTRO EM CASCATA
+# 📜 TELA 2: HISTÓRICO DE PEÇAS COM FILTRO EM CASCATA
 # =============================================================================
 elif opcao_menu == "📜 2. Histórico de Peças":
     if df_init.empty: 
@@ -515,7 +521,7 @@ elif opcao_menu == "📜 2. Histórico de Peças":
             df_ult = df_ord.groupby("Código da Peça").last().reset_index().sort_values("Empresa")
             df_exibir_t2 = df_ult[["Empresa", "Código da Peça", "Nome da Peça", "Lote", "Preço Unitário (R$)", "Preço Total Lote (R$)"]]
             
-        # CORREÇÃO DA VÍRGULA: Formatação visual de floats forçando separador brasileiro
+        # SOLUÇÃO DO PRINT: O configurador de colunas coloca a vírgula de forma visual mantendo o float puro no Python!
         st.dataframe(
             df_exibir_t2, 
             use_container_width=True,
@@ -578,20 +584,21 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
             rows_mat = []
             for k, v in novos_materiais.items():
                 rows_mat.append({"Liga": k, "Constante": float(v["constante"]), "Preço Atual (R$/Kg)": float(v["preco_atual"]), "Data da Cotação": safe_str(v["data_cotacao"])})
-            salvar_aba_sheets(pd.DataFrame(rows_mat), "Config_Materiais")
             
-            if registros_auditoria:
-                df_auditoria_novo = pd.DataFrame(registros_auditoria)
-                if os.path.exists(ARQUIVO_AUDITORIA_MP):
-                    try:
-                        df_auditoria_antigo = pd.read_csv(ARQUIVO_AUDITORIA_MP)
-                        df_auditoria_final = pd.concat([df_auditoria_antigo, df_auditoria_novo], ignore_index=True)
-                    except: df_auditoria_final = df_auditoria_novo
-                else: df_auditoria_final = df_auditoria_novo
-                df_auditoria_final.to_csv(ARQUIVO_AUDITORIA_MP, index=False)
-                
-            st.toast("✅ Preços atualizados e registrados no Google Sheets!")
-            st.rerun()
+            sucesso_mat = salvar_aba_sheets(pd.DataFrame(rows_mat), "Config_Materiais")
+            if sucesso_mat:
+                if registros_auditoria:
+                    df_auditoria_novo = pd.DataFrame(registros_auditoria)
+                    if os.path.exists(ARQUIVO_AUDITORIA_MP):
+                        try:
+                            df_auditoria_antigo = pd.read_csv(ARQUIVO_AUDITORIA_MP)
+                            df_auditoria_final = pd.concat([df_auditoria_antigo, df_auditoria_novo], ignore_index=True)
+                        except: df_auditoria_final = df_auditoria_novo
+                    else: df_auditoria_final = df_auditoria_novo
+                    df_auditoria_final.to_csv(ARQUIVO_AUDITORIA_MP, index=False)
+                    
+                st.toast("✅ Configurações de materiais atualizadas na Nuvem!")
+                st.rerun()
 
     ARQUIVO_AUDITORIA_MP = "historico_compras_mp.csv"
     with st.expander("📈 Ver Histórico de Evolução de Preços (MP)"):
@@ -628,8 +635,8 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
             
             if df_afetados.empty: st.info("Nenhuma peça mapeada por peso usa esta liga.")
             else:
-                st.warning("⚠️ O recálculo utilizará os valores SALVOS na planilha.")
-                st.write(f"Preço salvo para **{liga_recalc}**: R$ {materiais[liga_recalc]['preco_atual']:.2f}")
+                st.warning("⚠️ O recálculo utilizará os valores SALVOS no sistema em nuvem.")
+                st.write(f"Preço de referência para **{liga_recalc}**: R$ {materiais[liga_recalc]['preco_atual']:.2f}")
                 df_afetados.insert(0, "Recalcular", True)
                 
                 df_afetados_edit = st.data_editor(
@@ -684,9 +691,11 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
                         
                     if novas_linhas:
                         df_final_salvar = pd.concat([df_init, pd.DataFrame(novas_linhas)], ignore_index=True)
-                        salvar_aba_sheets(df_final_salvar, "Historico")
-                        st.session_state["msg_sucesso_aba3"] = f"✅ {len(novas_linhas)} peças recalculadas com sucesso pela troca de MP!"
-                        st.rerun()
+                        sucesso_recalc = salvar_aba_sheets(df_final_salvar, "Historico")
+                        if sucesso_recalc:
+                            st.session_state["db_historico"] = df_final_salvar
+                            st.session_state["msg_sucesso_aba3"] = f"✅ {len(novas_linhas)} peças recalculadas com sucesso pela troca de MP!"
+                            st.rerun()
 
     if st.session_state.get("msg_sucesso_aba3"):
         st.success(st.session_state["msg_sucesso_aba3"])
@@ -723,7 +732,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
         for k, v in novas_maq.items(): rows_mq.append({"Tipo": "Máquina", "Nome": k, "Valor": float(v)})
         for k, v in novos_imp.items(): rows_mq.append({"Tipo": "Imposto", "Nome": k, "Valor": float(v)})
         salvar_aba_sheets(pd.DataFrame(rows_mq), "Config_Maquinas")
-        st.toast("✅ Taxas atualizadas e sincronizadas no Sheets!")
+        st.toast("✅ Tarifas salvas com sucesso em Nuvem!")
         st.rerun()
 
     st.markdown("---")
@@ -747,7 +756,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
             
             if df_ultimos.empty: st.info("Nenhuma peça encontrada com estes critérios.")
             else:
-                st.warning("⚠️ O recálculo utilizará as taxas VIVAS inseridas acima.")
+                st.warning("⚠️ O recálculo utilizará as taxas VIVAS inseridas acima nas caixas.")
                 df_ultimos.insert(0, "Recalcular", True)
                 
                 df_recalc_edit = st.data_editor(
@@ -763,6 +772,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
                 )
                 
                 if st.button("🚀 Executar Recálculo de Tarifas"):
+                    # A CEREJA DO BOLO: Puxa os dados digitados "vivos" na tela imediatamente
                     novas_maq = dict(zip(df_maq_edit["Máquina"], df_maq_edit["Taxa (R$/h)"]))
                     novos_imp = dict(zip(df_imp_edit["Imposto"], df_imp_edit["Taxa (%)"]))
                     st.session_state.valores_maquinas = novas_maq
@@ -811,9 +821,11 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
                         
                     if linhas_recalculadas:
                         df_final_salvar = pd.concat([df_init, pd.DataFrame(linhas_recalculadas)], ignore_index=True)
-                        salvar_aba_sheets(df_final_salvar, "Historico")
-                        st.session_state["msg_sucesso_aba4"] = f"✅ {len(linhas_recalculadas)} orçamentos recalculados e consolidados em Nuvem!"
-                        st.rerun()
+                        sucesso_tar = salvar_aba_sheets(df_final_salvar, "Historico")
+                        if sucesso_tar:
+                            st.session_state["db_historico"] = df_final_salvar
+                            st.session_state["msg_sucesso_aba4"] = f"✅ {len(linhas_recalculadas)} orçamentos recalculados e consolidados em Nuvem!"
+                            st.rerun()
 
     if st.session_state.get("msg_sucesso_aba4"):
         st.success(st.session_state["msg_sucesso_aba4"])
@@ -825,8 +837,10 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
         codigo_del = st.selectbox("Apagar histórico de um código específico:", [""] + lista_codigos)
         if codigo_del and st.button(f"Deletar todos os registros de {codigo_del}", type="primary"):
             df_restante = df_init[df_init["Código da Peça"] != codigo_del]
-            salvar_aba_sheets(df_restante, "Historico")
-            st.rerun()
+            sucesso_del = salvar_aba_sheets(df_restante, "Historico")
+            if sucesso_del:
+                st.session_state["db_historico"] = df_restante
+                st.rerun()
             
 # =============================================================================
 # 🛒 TELA 5: COTAÇÃO FINAL (VENDAS)
@@ -919,7 +933,7 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 def formatar_br(valor): return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
                 df_resumo = pd.DataFrame(resultados_visuais)
-                # AJUSTE DA VÍRGULA: Renderizador do Streamlit com padrão regional brasileiro
+                # AJUSTE DA VÍRGULA: Formatação regional comercial aplicada na visualização
                 st.dataframe(
                     df_resumo, hide_index=True, use_container_width=True,
                     column_config={
@@ -945,7 +959,7 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 agora = datetime.now()
                 ano_atual = agora.year
                 data_str = agora.strftime("%d/%m/%Y")
-                df_cot_nuvem = ler_aba_sheets("Historico_Cotacoes", COLUNAS_COTACOES)
+                df_cot_nuvem = st.session_state["db_cotacoes"]
                 
                 novo_id = f"COT-{ano_atual}-001"
                 if not df_cot_nuvem.empty and "ID Cotação" in df_cot_nuvem.columns:
@@ -986,19 +1000,21 @@ elif opcao_menu == "🛒 5. Cotação Final":
                         df_salvar_cot["Valor Total Proposta"] = valor_total_cotacao
                         
                         df_final_cot = pd.concat([df_cot_nuvem, df_salvar_cot], ignore_index=True) if not df_cot_nuvem.empty else df_salvar_cot
-                        salvar_aba_sheets(df_final_cot, "Historico_Cotacoes")
-                        st.success(f"✅ {novo_id} salva permanentemente na Nuvem!")
+                        sucesso_cot = salvar_aba_sheets(df_final_cot, "Historico_Cotacoes")
+                        if sucesso_cot:
+                            st.session_state["db_cotacoes"] = df_final_cot
+                            st.success(f"✅ {novo_id} gravada permanentemente na Nuvem!")
                         
                 with col_b2:
                     arquivo_word = gerar_doc_word(novo_id, cliente_cot, df_resumo, valor_total_cotacao, peso_total_cotacao)
                     st.download_button(label="📄 Baixar Proposta Padrão (.docx)", data=arquivo_word, file_name=f"{novo_id}_{cliente_cot}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # =============================================================================
-# 📁 TELA 6: HISTÓRICO DE COTAÇÕES (CRM)
+# 📁 TELA 6: HISTÓRICO DE COTAÇÕES (CRM IN CLOUD)
 # =============================================================================
 elif opcao_menu == "📁 6. Histórico de Cotações":
     st.subheader("📁 Central de Propostas Comerciais")
-    df_historico = ler_aba_sheets("Historico_Cotacoes", COLUNAS_COTACOES)
+    df_historico = st.session_state["db_cotacoes"]
     
     if df_historico.empty:
         st.info("Nenhuma cotação salva na planilha em nuvem ainda.")
@@ -1020,7 +1036,7 @@ elif opcao_menu == "📁 6. Histórico de Cotações":
         st.markdown("#### 📑 Visão Geral das Propostas")
         df_master = df_filtrado.groupby(["ID Cotação", "Data", "Cliente"]).agg({"Valor Total Proposta": "max"}).reset_index().sort_values("ID Cotação", ascending=False)
         
-        # AJUSTE DA VÍRGULA: Configuração visual nativa do Streamlit para o CRM comercial
+        # AJUSTE DA VÍRGULA: Formatação visual de moeda perfeita aplicada no CRM
         st.dataframe(
             df_master, hide_index=True, use_container_width=True,
             column_config={"Valor Total Proposta": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")}
