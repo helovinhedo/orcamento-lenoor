@@ -449,7 +449,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
                 "Tratamento_JSON": df_trat_input.to_json(orient='records')
             }
             df_final = pd.concat([df_init, pd.DataFrame([novo_registro])], ignore_index=True) if not df_init.empty else pd.DataFrame([novo_registro])
-            df_final.to_csv(ARQUIVO_HISTORICO, index=False)
+            salvar_historico_seguro(df_final)
+
             
             limpar_formulario_orcamento()
             st.session_state["msg_sucesso_aba1"] = f"✅ Orçamento da peça '{codigo_peca}' gravado com sucesso!"
@@ -693,7 +694,7 @@ elif opcao_menu == "🧱 3. Matéria-Prima":
                         
                     if novas_linhas:
                         df_final_salvar = pd.concat([df_init, pd.DataFrame(novas_linhas)], ignore_index=True)
-                        df_final_salvar.to_csv(ARQUIVO_HISTORICO, index=False)
+                        salvar_historico_seguro(df_final_salvar)
                         st.session_state["msg_sucesso_aba3"] = f"✅ {len(novas_linhas)} peças recalculadas com sucesso pela troca de MP!"
                         st.rerun()
 
@@ -813,7 +814,7 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
                         
                     if linhas_recalculadas:
                         df_final_salvar = pd.concat([df_init, pd.DataFrame(linhas_recalculadas)], ignore_index=True)
-                        df_final_salvar.to_csv(ARQUIVO_HISTORICO, index=False)
+                        salvar_historico_seguro(df_final_salvar)
                         st.session_state["msg_sucesso_aba4"] = f"✅ {len(linhas_recalculadas)} orçamentos recalculados com as novas tarifas!"
                         st.rerun()
 
@@ -826,7 +827,8 @@ elif opcao_menu == "⚙️ 4. Custos Fixos & BD":
     if not df_init.empty:
         codigo_del = st.selectbox("Apagar histórico de um código específico:", [""] + lista_codigos)
         if codigo_del and st.button(f"Deletar todos os registros de {codigo_del}", type="primary"):
-            df_init[df_init["Código da Peça"] != codigo_del].to_csv(ARQUIVO_HISTORICO, index=False)
+            df_restante = df_init[df_init["Código da Peça"] != codigo_del]
+            salvar_historico_seguro(df_restante)
             st.rerun()
             
 # =============================================================================
