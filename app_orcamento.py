@@ -48,6 +48,23 @@ COLUNAS_COTACOES = [
     "Preço de Venda Unitário", "Total Faturado", "Valor Total Proposta"
 ]
 
+def formatar_br(valor):
+    """Converte float para string no padrão brasileiro de moeda (ex: 1.500,00)."""
+    try:
+        return f"{float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00"
+
+def converter_data_sheets(val):
+    """Converte o número serial do Google Sheets (Data) para string DD/MM/YYYY."""
+    if pd.isna(val) or val == "":
+        return ""
+    if isinstance(val, (int, float)):
+        # Google Sheets/Excel usam 30/12/1899 como base
+        data_convertida = pd.to_datetime('1899-12-30') + pd.to_timedelta(val, unit='D')
+        return data_convertida.strftime("%d/%m/%Y")
+    return str(val)
+
 def safe_float(val, default=0.0):
     if pd.isna(val) or val is None or str(val).strip() == "":
         return default
@@ -165,7 +182,8 @@ def carregar_config_nuvem():
                 liga = safe_str(r.get("Liga"))
                 constante_val = safe_float(r.get("Constante", r.get("constante")))
                 preco_val = safe_float(r.get("Preço Atual (R$/Kg)", r.get("preco_atual")))
-                data_val = safe_str(r.get("Data da Cotação", r.get("data_cotacao")))
+                # Correção Bug 5: Passando o valor bruto pela função de conversão de data serial
+                data_val = converter_data_sheets(r.get("Data da Cotação", r.get("data_cotacao")))
                 materials[liga] = {"constante": constante_val, "preco_atual": preco_val, "data_cotacao": data_val}
             materiais = materials
                 
@@ -182,7 +200,7 @@ valores_padrao_widgets = {
     "sel_empresa_aba1": "", "txt_comprador": "", "sel_codigo_peca": "", "txt_nome_peca": "",
     "txt_novo_codigo": "", "txt_nova_empresa": "",
     "num_lote": 100, "num_comprimento": 0.0, "num_margem_corte": 5.0, 
-    "sel_tipo_mp": "Por Peso (Barra Maciça/Sextavada)", "num_preco_mp": 0.0, "sel_liga": "aço sx",
+    "sel_tipo_mp": "Por Peso (Barra Maciça/Sextavada)", "num_preco_mp": 0.0, "sel_liga": "", # Bug 3 resolvido (Inicia vazia)
     "num_diam_barra": 15.0, "num_di_ext": 20.0, "num_di_int": 10.0, "num_peso_metro": 10.0,
     "num_peso_peca": 10.0, "num_peso_fornecido": 0.0, "slider_lucro_aba1": 30
 }
@@ -196,10 +214,11 @@ if "msg_sucesso_aba1" not in st.session_state: st.session_state["msg_sucesso_aba
 if "msg_sucesso_aba3" not in st.session_state: st.session_state["msg_sucesso_aba3"] = ""
 if "msg_sucesso_aba4" not in st.session_state: st.session_state["msg_sucesso_aba4"] = ""
 
+# Correção Bug 4: Inicializando os Dataframes VAZIOS, apenas com as colunas necessárias.
 if "df_usinagem_v3" not in st.session_state:
-    st.session_state["df_usinagem_v3"] = pd.DataFrame([{"Operação": "Tornear", "Máquina": "Torno Automático", "Peças por Hora": 50.0}])
+    st.session_state["df_usinagem_v3"] = pd.DataFrame(columns=["Operação", "Máquina", "Peças por Hora"])
 if "df_tratamento_v3" not in st.session_state:
-    st.session_state["df_tratamento_v3"] = pd.DataFrame([{"Tratamento": "Nenhum / Sem Tratamento", "Preço por Kg (R$)": 0.0}])
+    st.session_state["df_tratamento_v3"] = pd.DataFrame(columns=["Tratamento", "Preço por Kg (R$)"])
 
 # CARREGAMENTO EM CACHE LOCAL: Só lê as tabelas do Google uma única vez!
 if "db_historico" not in st.session_state or "db_cotacoes" not in st.session_state:
@@ -212,8 +231,9 @@ if "db_historico" not in st.session_state or "db_cotacoes" not in st.session_sta
 
 def limpar_formulario_orcamento():
     for k, v in valores_padrao_widgets.items(): st.session_state[k] = v
-    st.session_state["df_usinagem_v3"] = pd.DataFrame([{"Operação": "Tornear", "Máquina": "Torno Automático", "Peças por Hora": 50.0}])
-    st.session_state["df_tratamento_v3"] = pd.DataFrame([{"Tratamento": "Nenhum / Sem Tratamento", "Preço por Kg (R$)": 0.0}])
+    # Correção Bug 2: Limpando a memória dos data_editors, recriando as tabelas vazias
+    st.session_state["df_usinagem_v3"] = pd.DataFrame(columns=["Operação", "Máquina", "Peças por Hora"])
+    st.session_state["df_tratamento_v3"] = pd.DataFrame(columns=["Tratamento", "Preço por Kg (R$)"])
     st.session_state["taxas_original_msg"] = ""
     st.session_state.editor_version += 1
 
@@ -244,7 +264,7 @@ def carregar_roteiro_antigo_callback():
                 st.session_state["num_margem_corte"] = max(0.0, safe_float(last_hist.get("Margem Corte (mm)"), default=5.0))
                 st.session_state["sel_tipo_mp"] = safe_str(last_hist.get("Tipo MP", "Por Peso (Barra Maciça/Sextavada)"))
                 
-                liga_salva = safe_str(last_hist.get("Liga", "aço sx"))
+                liga_salva = safe_str(last_hist.get("Liga", ""))
                 st.session_state["sel_liga"] = liga_salva
                 preco_hist = safe_float(last_hist.get("Preço MP Unitário"), default=0.0)
                 st.session_state["num_preco_mp"] = st.session_state.materiais.get(liga_salva, {}).get("preco_atual", preco_hist) if "Por Peso" in st.session_state["sel_tipo_mp"] else preco_hist
@@ -264,18 +284,24 @@ def carregar_roteiro_antigo_callback():
                         st.session_state["taxas_original_msg"] = f"Últimas taxas de máquina aplicadas no orçamento desta peça: {resumo}"
                     else: st.session_state["taxas_original_msg"] = ""
                     st.session_state["df_usinagem_v3"] = df_usi[["Operação", "Máquina", "Peças por Hora"]].copy()
+                else:
+                    st.session_state["df_usinagem_v3"] = pd.DataFrame(columns=["Operação", "Máquina", "Peças por Hora"])
                 
                 if "Tratamento_JSON" in last_hist and safe_str(last_hist["Tratamento_JSON"]) not in ["", "[]"]:
                     df_trat = pd.read_json(io.StringIO(str(last_hist["Tratamento_JSON"])))
                     st.session_state["df_tratamento_v3"] = df_trat[["Tratamento", "Preço por Kg (R$)"]].copy()
+                else:
+                    st.session_state["df_tratamento_v3"] = pd.DataFrame(columns=["Tratamento", "Preço por Kg (R$)"])
                     
                 st.session_state.editor_version += 1
         except Exception as e: st.toast(f"Erro no autocomplete: {e}", icon="⚠️")
 
 def atualizar_preco_mp():
     liga = st.session_state.get("sel_liga")
-    if liga in st.session_state.materiais:
+    if liga and liga in st.session_state.materiais:
         st.session_state["num_preco_mp"] = safe_float(st.session_state.materiais[liga].get("preco_atual", 0.0))
+    else:
+        st.session_state["num_preco_mp"] = 0.0
 
 # Atribuição local rápida das tabelas de custos
 valores_maquinas = st.session_state.valores_maquinas
@@ -377,7 +403,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
 
         if "Por Peso" in tipo_mp:
             with col_mat1:
-                opcoes_liga = list(materiais.keys())
+                # Bug 3 resolvido: A liga precisa de clique obrigatório agora.
+                opcoes_liga = [""] + list(materiais.keys())
                 material_sel = st.selectbox("Liga", opcoes_liga, key="sel_liga", on_change=atualizar_preco_mp)
                 constante = materiais.get(material_sel, {}).get("constante", 0.0)
             
@@ -413,7 +440,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
             with col_mat2:
                 total_quilos = st.number_input("Peso total lote (kg)", min_value=0.0, step=0.1, key="num_peso_peca")
 
-    st.metric("Custo Total da Matéria-Prima", f"R$ {custo_total_material:.2f}", help=f"{total_quilos:.2f} kg")
+    # Correção Bug 1: Formatando a métrica em reais limpos
+    st.metric("Custo Total da Matéria-Prima", f"R$ {formatar_br(custo_total_material)}", help=f"{total_quilos:.2f} kg")
     st.markdown("---")
 
     # --- PROCESSOS DE USINAGEM ---
@@ -438,7 +466,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
             pcs_h = max(0.1, safe_float(row.get("Peças por Hora"), 50.0))
             custo_total_usinagem += (lote / pcs_h) * valores_maquinas.get(safe_str(row.get("Máquina"), "Outro"), 120.0)
 
-    st.caption(f"Custo de Usinagem: **R$ {custo_total_usinagem:.2f}**")
+    # Correção Bug 1
+    st.caption(f"Custo de Usinagem: **R$ {formatar_br(custo_total_usinagem)}**")
     st.markdown("---")
 
     # --- TRATAMENTOS ---
@@ -462,7 +491,8 @@ if opcao_menu == "📊 1. Novo Orçamento":
             soma_preco_kg_tratamento += safe_float(row.get("Preço por Kg (R$)"))
             
     custo_total_tratamentos = soma_preco_kg_tratamento * total_quilos
-    st.caption(f"Custo Tratamento: **R$ {custo_total_tratamentos:.2f}**")
+    # Correção Bug 1
+    st.caption(f"Custo Tratamento: **R$ {formatar_br(custo_total_tratamentos)}**")
     st.markdown("---")
 
     # --- FECHAMENTO E SALVAMENTO ---
@@ -476,15 +506,18 @@ if opcao_menu == "📊 1. Novo Orçamento":
     valor_impostos = valor_venda_bruto * (total_imposto_pct / 100)
     preco_lote = valor_venda_bruto + valor_impostos
 
+    # Correção Bug 1: Ajuste generalizado nos cards de valores finais
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Custo de Fábrica", f"R$ {custo_bruto:.2f}")
-    c2.metric("Lucro Bruto", f"R$ {valor_venda_bruto - custo_bruto:.2f}")
-    c3.metric(f"Impostos ({total_imposto_pct}%)", f"R$ {valor_impostos:.2f}")
-    c4.metric("Preço UNITÁRIO Final", f"R$ {preco_lote / lote if lote > 0 else 0.0:.2f}")
+    c1.metric("Custo de Fábrica", f"R$ {formatar_br(custo_bruto)}")
+    c2.metric("Lucro Bruto", f"R$ {formatar_br(valor_venda_bruto - custo_bruto)}")
+    c3.metric(f"Impostos ({total_imposto_pct}%)", f"R$ {formatar_br(valor_impostos)}")
+    c4.metric("Preço UNITÁRIO Final", f"R$ {formatar_br(preco_lote / lote if lote > 0 else 0.0)}")
 
     if st.button("💾 Gravar no Histórico", type="primary"):
         if not codigo_peca or codigo_peca == "➕ Novo Código...":
             st.error("Preencha o código da peça!")
+        elif material_sel == "":
+            st.error("Selecione a liga do material antes de gravar!")
         else:
             df_usi_salvar = df_usinagem_input.copy()
             if not df_usi_salvar.empty: df_usi_salvar["Preço/Hora_Aplicado"] = df_usi_salvar["Máquina"].map(valores_maquinas)
@@ -965,10 +998,7 @@ elif opcao_menu == "🛒 5. Cotação Final":
                 st.markdown("---")
                 st.markdown("### Passo 3: A Proposta (Visão do Cliente)")
                 
-                def formatar_br(valor): return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
                 df_resumo = pd.DataFrame(resultados_visuais)
-                # AJUSTE DA VÍRGULA: Formatação regional comercial aplicada na visualização
                 st.dataframe(
                     df_resumo, hide_index=True, use_container_width=True,
                     column_config={
