@@ -320,7 +320,7 @@ opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Ma
 opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor v4.6 - Vendas e Analytics")
+st.sidebar.caption("Lenoor v4.8 - Vendas e Analytics")
 
 if st.sidebar.button("🔄 Forçar Sincronização Google Sheets", use_container_width=True):
     st.session_state["db_historico"] = ler_aba_sheets("Historico", COLUNAS_PADRAO)
