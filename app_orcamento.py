@@ -320,7 +320,7 @@ opcoes = ["📊 1. Novo Orçamento", "📜 2. Histórico de Peças", "🧱 3. Ma
 opcao_menu = st.sidebar.radio("Navegação:", opcoes)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Lenoor v4.8 - Vendas e Analytics")
+st.sidebar.caption("Lenoor v4.9 - Vendas e Analytics")
 
 if st.sidebar.button("🔄 Forçar Sincronização Google Sheets", use_container_width=True):
     st.session_state["db_historico"] = ler_aba_sheets("Historico", COLUNAS_PADRAO)
@@ -347,6 +347,12 @@ st.markdown("---")
 # 📊 TELA 1: NOVO ORÇAMENTO
 # =============================================================================
 if opcao_menu == "📊 1. Novo Orçamento":
+
+    # ✅ GATILHO INTERCEPTADOR: Limpa a tela ANTES dos widgets nascerem!
+    if st.session_state.get("_deve_limpar", False):
+        limpar_formulario_orcamento()
+        st.session_state["_deve_limpar"] = False
+    
     st.subheader("👤 Dados do Cliente")
     col_cli1, col_cli2 = st.columns(2)
     with col_cli1:
@@ -540,9 +546,10 @@ if opcao_menu == "📊 1. Novo Orçamento":
             sucesso = salvar_aba_sheets(df_final, "Historico")
             if sucesso:
                 st.session_state["db_historico"] = df_final
-                limpar_formulario_orcamento()
+                st.session_state["_deve_limpar"] = True  # ✅ AVISAMOS O SISTEMA PARA LIMPAR
                 st.session_state["msg_sucesso_aba1"] = f"✅ Orçamento da peça '{codigo_peca}' gravado com sucesso!"
                 st.rerun()
+ 
 
     if st.session_state.get("msg_sucesso_aba1"):
         st.success(st.session_state["msg_sucesso_aba1"])
