@@ -462,8 +462,7 @@ if opcao_menu == "📊 1. Novo Orçamento":
         use_container_width=True,
         key=f"editor_usi_{st.session_state.editor_version}"
     )
-    st.session_state["df_usinagem_v3"] = df_usinagem_input
-    
+        
     custo_total_usinagem = 0.0
     if not df_usinagem_input.empty:
         df_usi_clean = df_usinagem_input.fillna({"Peças por Hora": 50.0, "Máquina": "Outro"})
@@ -487,7 +486,6 @@ if opcao_menu == "📊 1. Novo Orçamento":
         use_container_width=True,
         key=f"editor_trat_{st.session_state.editor_version}"
     )
-    st.session_state["df_tratamento_v3"] = df_trat_input
 
     soma_preco_kg_tratamento = 0.0
     if not df_trat_input.empty:
@@ -594,7 +592,11 @@ elif opcao_menu == "📜 2. Histórico de Peças":
             
         # Tratamento Textual Visual Brasileiro (Vírgulas no modo Leitura)
         df_exibir_t2_display = df_exibir_t2.copy()
-        df_exibir_t2_display["Data/Hora"] = df_exibir_t2_display["Data/Hora"].apply(lambda x: converte_data_mista(x).strftime("%d/%m/%Y %H:%M") if pd.notnull(converte_data_mista(x)) else x)
+        
+        # ✅ VERIFICA SE A COLUNA EXISTE ANTES DE TENTAR FORMATAR
+        if "Data/Hora" in df_exibir_t2_display.columns:
+            df_exibir_t2_display["Data/Hora"] = df_exibir_t2_display["Data/Hora"].apply(lambda x: converte_data_mista(x).strftime("%d/%m/%Y %H:%M") if pd.notnull(converte_data_mista(x)) else x)
+            
         df_exibir_t2_display["Preço Unitário (R$)"] = df_exibir_t2_display["Preço Unitário (R$)"].apply(lambda x: f"R$ {formatar_br(x)}")
         df_exibir_t2_display["Preço Total Lote (R$)"] = df_exibir_t2_display["Preço Total Lote (R$)"].apply(lambda x: f"R$ {formatar_br(x)}")
 
