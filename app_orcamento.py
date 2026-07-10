@@ -7,6 +7,7 @@ import os
 import io
 import gspread
 from google.oauth2.service_account import Credentials
+import re
 
 # =============================================================================
 # 🧱 1. CONFIGURAÇÕES INICIAIS E FUNÇÕES UTILITÁRIAS DE SEGURANÇA
@@ -48,12 +49,36 @@ COLUNAS_COTACOES = [
 ]
 
 def safe_float(val, default=0.0):
-    try: return default if pd.isna(val) or val is None else float(val)
-    except: return default
+    if pd.isna(val) or val is None or str(val).strip() == "":
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    
+    # Limpador agressivo: Remove R$, %, espaços
+    val_str = str(val).upper().replace("R$", "").replace("%", "").strip()
+    val_str = val_str.replace(" ", "")
+    
+    if not val_str:
+        return default
+        
+    # Trata conversão regional (ex: 1.500,50 -> 1500.50 ou 30,00 -> 30.00)
+    if '.' in val_str and ',' in val_str:
+        val_str = val_str.replace('.', '').replace(',', '.')
+    elif ',' in val_str:
+        val_str = val_str.replace(',', '.')
+        
+    try: 
+        return float(val_str)
+    except: 
+        return default
 
 def safe_int(val, default=0):
-    try: return default if pd.isna(val) or val is None else int(float(val))
-    except: return default
+    if pd.isna(val) or val is None or str(val).strip() == "":
+        return default
+    try: 
+        return int(float(val))
+    except: 
+        return default
 
 def safe_str(val, default=""):
     return default if pd.isna(val) or val is None else str(val).strip()
@@ -70,7 +95,7 @@ def ler_aba_sheets(nome_aba, colunas_padrao):
         client = conectar_sheets()
         sh = client.open_by_key(ID_PLANILHA)
         worksheet = sh.worksheet(nome_aba)
-        dados = worksheet.get_all_records()
+        dados = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
         if not dados:
             return pd.DataFrame(columns=colunas_padrao)
         df = pd.DataFrame(dados)
@@ -102,7 +127,7 @@ def carregar_config_nuvem():
         
         try:
             wks_maq = sh.worksheet("Config_Maquinas")
-            dados_maq = wks_maq.get_all_records()
+            dados_maq = wks_maq.get_all_records(value_render_option='UNFORMATTED_VALUE')
         except: dados_maq = []
             
         if not dados_maq:
@@ -124,7 +149,7 @@ def carregar_config_nuvem():
 
         try:
             wks_mat = sh.worksheet("Config_Materiais")
-            dados_mat = wks_mat.get_all_records()
+            dados_mat = wks_mat.get_all_records(value_render_option='UNFORMATTED_VALUE')
         except: dados_mat = []
             
         if not dados_mat:
@@ -138,9 +163,9 @@ def carregar_config_nuvem():
             materials = {}
             for r in dados_mat:
                 liga = safe_str(r.get("Liga"))
-                constante_val = safe_float(r.get("Constante")) if r.get("Constante") is not None else safe_float(r.get("constante"))
-                preco_val = safe_float(r.get("Preço Atual (R$/Kg)")) if r.get("Preço Atual (R$/Kg)") is not None else safe_float(r.get("preco_atual"))
-                data_val = safe_str(r.get("Data da Cotação")) if r.get("Data da Cotação") is not None else safe_str(r.get("data_cotacao"))
+                constante_val = safe_float(r.get("Constante", r.get("constante")))
+                preco_val = safe_float(r.get("Preço Atual (R$/Kg)", r.get("preco_atual")))
+                data_val = safe_str(r.get("Data da Cotação", r.get("data_cotacao")))
                 materials[liga] = {"constante": constante_val, "preco_atual": preco_val, "data_cotacao": data_val}
             materiais = materials
                 
@@ -214,20 +239,20 @@ def carregar_roteiro_antigo_callback():
                 st.session_state["sel_empresa_aba1"] = safe_str(last_hist.get("Empresa"))
                 st.session_state["txt_comprador"] = safe_str(last_hist.get("Comprador"))
                 st.session_state["txt_nome_peca"] = safe_str(last_hist.get("Nome da Peça"))
-                st.session_state["num_lote"] = max(1, safe_int(last_hist.get("Lote", 100)))
-                st.session_state["num_comprimento"] = max(0.0, safe_float(last_hist.get("Comprimento (mm)")))
-                st.session_state["num_margem_corte"] = max(0.0, safe_float(last_hist.get("Margem Corte (mm)", 5.0)))
+                st.session_state["num_lote"] = max(1, safe_int(last_hist.get("Lote"), default=100))
+                st.session_state["num_comprimento"] = max(0.0, safe_float(last_hist.get("Comprimento (mm)"), default=0.0))
+                st.session_state["num_margem_corte"] = max(0.0, safe_float(last_hist.get("Margem Corte (mm)"), default=5.0))
                 st.session_state["sel_tipo_mp"] = safe_str(last_hist.get("Tipo MP", "Por Peso (Barra Maciça/Sextavada)"))
                 
                 liga_salva = safe_str(last_hist.get("Liga", "aço sx"))
                 st.session_state["sel_liga"] = liga_salva
-                preco_hist = safe_float(last_hist.get("Preço MP Unitário"))
+                preco_hist = safe_float(last_hist.get("Preço MP Unitário"), default=0.0)
                 st.session_state["num_preco_mp"] = st.session_state.materiais.get(liga_salva, {}).get("preco_atual", preco_hist) if "Por Peso" in st.session_state["sel_tipo_mp"] else preco_hist
 
-                st.session_state["num_diam_barra"] = max(0.0, safe_float(last_hist.get("Diâmetro (mm)", 15.0)))
-                st.session_state["num_di_ext"] = max(0.0, safe_float(last_hist.get("Diâmetro Externo (mm)", 20.0)))
-                st.session_state["num_di_int"] = max(0.0, safe_float(last_hist.get("Diâmetro Interno (mm)", 10.0)))
-                st.session_state["slider_lucro_aba1"] = max(15, min(safe_int(last_hist.get("Margem Lucro (%)", 30)), 95))
+                st.session_state["num_diam_barra"] = max(0.0, safe_float(last_hist.get("Diâmetro (mm)"), default=15.0))
+                st.session_state["num_di_ext"] = max(0.0, safe_float(last_hist.get("Diâmetro Externo (mm)"), default=20.0))
+                st.session_state["num_di_int"] = max(0.0, safe_float(last_hist.get("Diâmetro Interno (mm)"), default=10.0))
+                st.session_state["slider_lucro_aba1"] = max(15, min(safe_int(last_hist.get("Margem Lucro (%)"), default=30), 95))
                 
                 if "Usinagem_JSON" in last_hist and safe_str(last_hist["Usinagem_JSON"]) not in ["", "[]"]:
                     df_usi = pd.read_json(io.StringIO(str(last_hist["Usinagem_JSON"])), orient='records')
@@ -246,6 +271,11 @@ def carregar_roteiro_antigo_callback():
                     
                 st.session_state.editor_version += 1
         except Exception as e: st.toast(f"Erro no autocomplete: {e}", icon="⚠️")
+
+def atualizar_preco_mp():
+    liga = st.session_state.get("sel_liga")
+    if liga in st.session_state.materiais:
+        st.session_state["num_preco_mp"] = safe_float(st.session_state.materiais[liga].get("preco_atual", 0.0))
 
 # Atribuição local rápida das tabelas de custos
 valores_maquinas = st.session_state.valores_maquinas
@@ -344,14 +374,15 @@ if opcao_menu == "📊 1. Novo Orçamento":
         total_quilos = st.number_input("Peso total lote (kg) [Tratamento]", min_value=0.0, step=0.1, key="num_peso_fornecido")
     else:
         col_mat1, col_mat2, col_mat3 = st.columns(3)
-        with col_mat1:
-            preco_unitario_mp = st.number_input("Preço Atual MP (R$)", min_value=0.0, step=1.0, key="num_preco_mp")
 
         if "Por Peso" in tipo_mp:
-            with col_mat2:
+            with col_mat1:
                 opcoes_liga = list(materiais.keys())
-                material_sel = st.selectbox("Liga", opcoes_liga, key="sel_liga")
+                material_sel = st.selectbox("Liga", opcoes_liga, key="sel_liga", on_change=atualizar_preco_mp)
                 constante = materiais.get(material_sel, {}).get("constante", 0.0)
+            
+            with col_mat2:
+                preco_unitario_mp = st.number_input("Preço Atual MP (R$)", min_value=0.0, step=1.0, key="num_preco_mp")
             
             if "Maciça" in tipo_mp:
                 with col_mat3:
@@ -368,12 +399,16 @@ if opcao_menu == "📊 1. Novo Orçamento":
             custo_total_material = total_quilos * preco_unitario_mp
 
         elif tipo_mp == "Por Metro Linear":
+            with col_mat1:
+                preco_unitario_mp = st.number_input("Preço Atual MP (R$)", min_value=0.0, step=1.0, key="num_preco_mp")
             total_metros = ((comprimento + margem_corte) * lote) / 1000
             custo_total_material = total_metros * preco_unitario_mp
             with col_mat2:
                 total_quilos = st.number_input("Peso total lote (kg)", min_value=0.0, step=0.1, key="num_peso_metro")
 
         elif tipo_mp == "Por Peça Pronta":
+            with col_mat1:
+                preco_unitario_mp = st.number_input("Preço Atual MP (R$)", min_value=0.0, step=1.0, key="num_preco_mp")
             custo_total_material = lote * preco_unitario_mp
             with col_mat2:
                 total_quilos = st.number_input("Peso total lote (kg)", min_value=0.0, step=0.1, key="num_peso_peca")
